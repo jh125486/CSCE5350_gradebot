@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package rubric;
+
+option go_package = "github.com/jh125486/CSCE5350_gradebot/pkg/proto";
+
+service RubricService {
+  rpc UploadRubricResult(UploadRubricResultRequest) returns (UploadRubricResultResponse);
+}
+
+message UploadRubricResultRequest {
+  Result result = 1;
+}
+
+message UploadRubricResultResponse {
+  string submission_id = 1;
+  string message = 2;
+}
+
+message Result {
+  string submission_id = 1;
+  string timestamp = 2;
+  repeated RubricItem rubric = 3;
+  string ip_address = 4;
+  string geo_location = 5;
+}
+
+message RubricItem {
+  string name = 1;
+  string note = 2;
+  double points = 3;
+  double awarded = 4;
+}

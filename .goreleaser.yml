@@ -1,0 +1,63 @@
+# .goreleaser.yml
+project_name: gradebot
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: client
+    main: ./main.go
+    binary: gradebot
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    goarm:
+      - 7
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.buildID={{ .Env.BUILD_ID }}
+    tags:
+      - netgo
+    flags:
+      - -trimpath
+
+archives:
+  - id: client-archive
+    builds:
+      - client
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+release:
+  github:
+    owner: jh125486
+    name: CSCE5350_gradebot
+  draft: true
