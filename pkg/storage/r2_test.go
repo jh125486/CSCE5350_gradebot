@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"net"
 	"os"
 	"strconv"
 	"testing"
@@ -13,10 +14,25 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
+// isLocalStackAvailable checks if LocalStack is running on localhost:4566
+func isLocalStackAvailable() bool {
+	conn, err := net.DialTimeout("tcp", "localhost:4566", 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 func TestR2Storage_LocalStack(t *testing.T) {
-	// Skip if LocalStack is not available
+	// Skip if LocalStack tests are explicitly disabled
 	if os.Getenv("SKIP_LOCALSTACK_TESTS") == "true" {
 		t.Skip("Skipping LocalStack tests")
+	}
+	
+	// Skip if LocalStack is not available
+	if !isLocalStackAvailable() {
+		t.Skip("LocalStack is not available at localhost:4566")
 	}
 
 	// Configure for LocalStack
@@ -139,9 +155,19 @@ func TestR2Storage_ErrorHandling(t *testing.T) {
 }
 
 func TestR2Storage_BucketCreation(t *testing.T) {
+	// Skip if LocalStack tests are explicitly disabled
+	if os.Getenv("SKIP_LOCALSTACK_TESTS") == "true" {
+		t.Skip("Skipping LocalStack tests")
+	}
+	
+	// Skip if LocalStack is not available
+	if !isLocalStackAvailable() {
+		t.Skip("LocalStack is not available at localhost:4566")
+	}
+	
 	// Test bucket creation with LocalStack
 	cfg := &Config{
-		Endpoint:        "http://localstack:4566",
+		Endpoint:        "http://localhost:4566", // Use localhost instead of localstack hostname
 		Bucket:          "test-new-bucket-" + strconv.FormatInt(time.Now().Unix(), 10), // Use unique name
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
