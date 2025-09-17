@@ -9,12 +9,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/app"
 )
 
 var buildID string
 
 func main() {
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file found or error loading it: %v", err)
+	}
+
 	if buildID == "" {
 		buildID = os.Getenv("BUILD_ID")
 	}

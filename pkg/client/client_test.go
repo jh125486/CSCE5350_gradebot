@@ -17,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/filesystem"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/client"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
@@ -121,7 +122,7 @@ func createTestGitRepo(t *testing.T) string {
 	dir := t.TempDir()
 
 	// Create README.md file
-	if err := os.WriteFile(dir+"/README.md", []byte("hello world"), 0644); err != nil {
+	if err := os.WriteFile(dir+"/README.md", []byte("hello world"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 

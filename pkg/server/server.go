@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/bufbuild/connect-go"
+	"github.com/tomasen/realip"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
-	"github.com/tomasen/realip"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
 const (
@@ -73,6 +75,7 @@ type (
 		ID           string
 		Port         string
 		OpenAIClient openai.Reviewer
+		Storage      storage.Storage
 	}
 	GradingServer struct {
 		ID string
@@ -97,7 +100,7 @@ func Start(ctx context.Context, cfg Config) error {
 		OpenAIClient: cfg.OpenAIClient,
 	})
 
-	rubricServer := NewRubricServer()
+	rubricServer := NewRubricServer(cfg.Storage)
 	rubricPath, rubricHandler := protoconnect.NewRubricServiceHandler(rubricServer)
 
 	// Create a multiplexer to handle both services
@@ -151,15 +154,20 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	// Set content type
 	w.Header().Set("Content-Type", "text/html")
 
-	// Prepare template data by directly accessing the data store
+	// Prepare template data by accessing the storage
 	var submissions []SubmissionData
 	var totalScore float64
 	var highScore float64
 
-	rubricServer.mu.RLock()
-	defer rubricServer.mu.RUnlock()
+	ctx := context.Background()
+	results, err := rubricServer.storage.ListResults(ctx)
+	if err != nil {
+		slog.Error("Failed to list results from storage", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-	for _, result := range rubricServer.results {
+	for _, result := range results {
 		totalPoints := 0.0
 		awardedPoints := 0.0
 
@@ -233,11 +241,10 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 
 	submissionID := path
 
-	rubricServer.mu.RLock()
-	result, exists := rubricServer.results[submissionID]
-	rubricServer.mu.RUnlock()
-
-	if !exists {
+	ctx := context.Background()
+	result, err := rubricServer.storage.LoadResult(ctx, submissionID)
+	if err != nil {
+		slog.Error("Failed to load result from storage", "error", err, "submission_id", submissionID)
 		http.Error(w, "Submission not found", http.StatusNotFound)
 		return
 	}

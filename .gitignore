@@ -10,3 +10,6 @@ go.work.sum
 .env
 CSCE5350_gradebot
 gradebot
+
+# Dev container
+.devcontainer/.localstack

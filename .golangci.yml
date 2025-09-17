@@ -1,0 +1,110 @@
+version: "2"
+
+run:
+  go: "1.24"
+  tests: true
+  timeout: 5m
+  build-tags:
+    - integration
+  allow-parallel-runners: true
+
+output:
+  print-linter-name: true
+  sort-results: true
+  show-stats: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - asasalint
+    - bodyclose
+    - copyloopvar
+    - dupl
+    - errorlint
+    - exhaustive
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godox
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - interfacebloat
+    - ireturn
+    - lll
+    - makezero
+    - nakedret
+    - nestif
+    - nilnil
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+  settings:
+    funlen:
+      lines: 150
+      statements: 70
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    gocyclo:
+      min-complexity: 20
+    lll:
+      line-length: 140
+    nakedret:
+      max-func-lines: 50
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - ".*\\.pb\\.go$"
+      - ".*\\.connect\\.go$"
+      - vendor
+      - third_party$
+    rules:
+      # Exclude some linters from running on tests files
+      - path: "_test\\.go$"
+        linters:
+          - gocyclo
+          - errcheck
+          - dupl
+          - gosec
+          - funlen
+          - gocognit
+          - gochecknoglobals
+          - lll
+          - revive
+          - unparam
+          - thelper
+          - tparallel
+      # Exclude specific issues in main.go
+      - path: "main\\.go$"
+        linters:
+          - gocognit
+          - funlen
+          - gochecknoglobals
+          - gocritic

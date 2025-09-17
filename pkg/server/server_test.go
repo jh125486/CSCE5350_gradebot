@@ -3,18 +3,21 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	connectgo "github.com/bufbuild/connect-go"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
-	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
-	"github.com/stretchr/testify/assert"
 )
 
 // mockReviewer implements the openai.Reviewer interface for tests.
@@ -26,6 +29,48 @@ type mockReviewer struct {
 func (m *mockReviewer) ReviewCode(ctx context.Context, instructions string, files []*pb.File) (*openai.AIReview, error) {
 	// tests pass a single file in these cases
 	return m.review, m.err
+}
+
+// mockStorage implements the storage.Storage interface for tests.
+type mockStorage struct {
+	results map[string]*pb.Result
+	mu      sync.RWMutex
+}
+
+func newMockStorage() *mockStorage {
+	return &mockStorage{
+		results: make(map[string]*pb.Result),
+	}
+}
+
+func (m *mockStorage) SaveResult(ctx context.Context, submissionID string, result *pb.Result) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.results[submissionID] = result
+	return nil
+}
+
+func (m *mockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.Result, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result, exists := m.results[submissionID]
+	if !exists {
+		return nil, fmt.Errorf("result not found")
+	}
+	return result, nil
+}
+
+func (m *mockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	// Return a copy to avoid concurrent map writes
+	results := make(map[string]*pb.Result)
+	maps.Copy(results, m.results)
+	return results, nil
+}
+
+func (m *mockStorage) Close() error {
+	return nil
 }
 
 // mockConnectRequest wraps a connect request with mock peer info for testing
@@ -79,7 +124,12 @@ func getClientIPFromMock(ctx context.Context, req *mockConnectRequest) string {
 }
 
 func TestStart_InvalidPort(t *testing.T) {
-	cfg := Config{ID: "id", Port: "notaport", OpenAIClient: &mockReviewer{}}
+	cfg := Config{
+		ID:           "id",
+		Port:         "notaport",
+		OpenAIClient: &mockReviewer{},
+		Storage:      newMockStorage(),
+	}
 	err := Start(t.Context(), cfg)
 	if err == nil {
 		t.Fatalf("expected error from Start with invalid port, got nil")
@@ -160,7 +210,7 @@ func TestStart_CancelReturnsContextErr(t *testing.T) {
 		t.Fatalf("expected Start to return an error due to cancelled context, got nil")
 	}
 	// ensure it's the context error
-	if err != ctx.Err() {
+	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("expected ctx.Err() (%v), got %v", ctx.Err(), err)
 	}
 }
@@ -168,56 +218,48 @@ func TestStart_CancelReturnsContextErr(t *testing.T) {
 func TestGetClientIP(t *testing.T) {
 	tests := []struct {
 		name     string
-		ctx      context.Context
 		headers  map[string]string
 		peerAddr string
 		expected string
 	}{
 		{
 			name:     "RealIPFromContext",
-			ctx:      context.WithValue(context.Background(), realIPKey, "192.168.1.100"),
 			headers:  map[string]string{},
 			peerAddr: "127.0.0.1:12345",
 			expected: "192.168.1.100",
 		},
 		{
 			name:     "XForwardedFor",
-			ctx:      context.Background(),
 			headers:  map[string]string{"X-Forwarded-For": "192.168.1.101"},
 			peerAddr: "127.0.0.1:12345",
 			expected: "192.168.1.101",
 		},
 		{
 			name:     "XForwardedForMultiple",
-			ctx:      context.Background(),
 			headers:  map[string]string{"X-Forwarded-For": "192.168.1.102, 10.0.0.1"},
 			peerAddr: "127.0.0.1:12345",
 			expected: "192.168.1.102",
 		},
 		{
 			name:     "XRealIP",
-			ctx:      context.Background(),
 			headers:  map[string]string{"X-Real-IP": "192.168.1.103"},
 			peerAddr: "127.0.0.1:12345",
 			expected: "192.168.1.103",
 		},
 		{
 			name:     "CFConnectingIP",
-			ctx:      context.Background(),
 			headers:  map[string]string{"CF-Connecting-IP": "192.168.1.104"},
 			peerAddr: "127.0.0.1:12345",
 			expected: "192.168.1.104",
 		},
 		{
 			name:     "PeerAddrFallback",
-			ctx:      context.Background(),
 			headers:  map[string]string{},
 			peerAddr: "203.0.113.4:8080",
 			expected: "203.0.113.4",
 		},
 		{
 			name:     "UnknownFallback",
-			ctx:      context.Background(),
 			headers:  map[string]string{},
 			peerAddr: "",
 			expected: "unknown",
@@ -226,6 +268,14 @@ func TestGetClientIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create base context - use t.Context() or context.Background() for test setup
+			var ctx context.Context
+			if tt.name == "RealIPFromContext" {
+				ctx = context.WithValue(t.Context(), realIPKey, "192.168.1.100")
+			} else {
+				ctx = t.Context()
+			}
+
 			// Create a mock request
 			req := connectgo.NewRequest(&pb.UploadRubricResultRequest{
 				Result: &pb.Result{SubmissionId: "test"},
@@ -243,18 +293,18 @@ func TestGetClientIP(t *testing.T) {
 					Request:  req,
 					peerAddr: tt.peerAddr,
 				}
-				result := getClientIPFromMock(tt.ctx, mockReq)
+				result := getClientIPFromMock(ctx, mockReq)
 				assert.Equal(t, tt.expected, result)
 				return
 			}
 
 			if tt.name == "UnknownFallback" {
-				result := getClientIP(tt.ctx, req)
+				result := getClientIP(ctx, req)
 				assert.Equal(t, tt.expected, result)
 				return
 			}
 
-			result := getClientIP(tt.ctx, req)
+			result := getClientIP(ctx, req)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -301,36 +351,9 @@ func TestGetGeoLocation(t *testing.T) {
 	}
 }
 
-func TestConvertRubricsResultToProto(t *testing.T) {
-	rubricResult := &rubrics.Result{
-		SubmissionID: "test-submission",
-		Timestamp:    time.Now(),
-		Rubric: []rubrics.RubricItem{
-			{Name: "Test Item 1", Points: 10.0, Awarded: 8.0, Note: "Good work"},
-			{Name: "Test Item 2", Points: 5.0, Awarded: 3.0, Note: "Needs improvement"},
-		},
-	}
-
-	result := ConvertRubricsResultToProto(rubricResult)
-
-	assert.Equal(t, "test-submission", result.SubmissionId)
-	assert.Equal(t, "unknown", result.IpAddress)
-	assert.Equal(t, "Unknown", result.GeoLocation)
-	assert.Len(t, result.Rubric, 2)
-
-	assert.Equal(t, "Test Item 1", result.Rubric[0].Name)
-	assert.Equal(t, float64(10.0), result.Rubric[0].Points)
-	assert.Equal(t, float64(8.0), result.Rubric[0].Awarded)
-	assert.Equal(t, "Good work", result.Rubric[0].Note)
-
-	assert.Equal(t, "Test Item 2", result.Rubric[1].Name)
-	assert.Equal(t, float64(5.0), result.Rubric[1].Points)
-	assert.Equal(t, float64(3.0), result.Rubric[1].Awarded)
-	assert.Equal(t, "Needs improvement", result.Rubric[1].Note)
-}
-
 func TestUploadRubricResult(t *testing.T) {
-	server := NewRubricServer()
+	mockStore := newMockStorage()
+	server := NewRubricServer(mockStore)
 
 	tests := []struct {
 		name         string
@@ -374,12 +397,16 @@ func TestUploadRubricResult(t *testing.T) {
 				},
 			})
 
-			resp, err := server.UploadRubricResult(context.Background(), req)
+			resp, err := server.UploadRubricResult(t.Context(), req)
 
 			if tt.expectError {
 				assert.Error(t, err)
 				if err != nil {
-					connectErr := err.(*connectgo.Error)
+					connectErr := func() *connectgo.Error {
+						target := &connectgo.Error{}
+						_ = errors.As(err, &target)
+						return target
+					}()
 					assert.Equal(t, tt.errorCode, connectErr.Code())
 				}
 				assert.Nil(t, resp)
@@ -390,10 +417,9 @@ func TestUploadRubricResult(t *testing.T) {
 				assert.Contains(t, resp.Msg.Message, "uploaded successfully")
 
 				// Verify the result was stored
-				server.mu.RLock()
-				stored, exists := server.results[tt.submissionID]
-				server.mu.RUnlock()
-				assert.True(t, exists)
+				stored, err := mockStore.LoadResult(t.Context(), tt.submissionID)
+				assert.NoError(t, err)
+				assert.NotNil(t, stored)
 				assert.Equal(t, tt.submissionID, stored.SubmissionId)
 			}
 		})
@@ -596,9 +622,13 @@ func TestServeSubmissionsPage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a test server with the setup results
-			server := NewRubricServer()
-			server.results = tt.setupResults
+			// Create a test server with mock storage
+			mockStore := newMockStorage()
+			for id, result := range tt.setupResults {
+				err := mockStore.SaveResult(t.Context(), id, result)
+				assert.NoError(t, err)
+			}
+			server := NewRubricServer(mockStore)
 
 			// Create a test request
 			req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
@@ -708,9 +738,13 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a test server with the setup results
-			server := NewRubricServer()
-			server.results = tt.setupResults
+			// Create a test server with mock storage
+			mockStore := newMockStorage()
+			for id, result := range tt.setupResults {
+				err := mockStore.SaveResult(t.Context(), id, result)
+				assert.NoError(t, err)
+			}
+			server := NewRubricServer(mockStore)
 
 			// Create a test request
 			req := httptest.NewRequest(http.MethodGet, tt.urlPath, nil)

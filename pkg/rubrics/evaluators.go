@@ -19,7 +19,7 @@ const DataFileName = "data.db"
 func Reset(program ProgramRunner) error {
 	dataFilePath := filepath.Join(program.Path(), DataFileName)
 	if err := os.Remove(dataFilePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove existing data.db: %v", err)
+		return fmt.Errorf("failed to remove existing data.db: %w", err)
 	}
 	return nil
 }

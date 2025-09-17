@@ -9,27 +9,64 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bufbuild/connect-go"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
-	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
-// RubricServer implements the RubricService
+// RubricServer implements the RubricService with persistent storage
 type RubricServer struct {
 	protoconnect.UnimplementedRubricServiceHandler
-	results map[string]*proto.Result
-	mu      sync.RWMutex
+	storage storage.Storage
 }
 
-// NewRubricServer creates a new RubricServer instance
-func NewRubricServer() *RubricServer {
+// NewRubricServer creates a new RubricServer with persistent storage
+func NewRubricServer(storage storage.Storage) *RubricServer {
 	return &RubricServer{
-		results: make(map[string]*proto.Result),
+		storage: storage,
 	}
+}
+
+// UploadRubricResult stores a rubric result using persistent storage
+func (s *RubricServer) UploadRubricResult(
+	ctx context.Context,
+	req *connect.Request[proto.UploadRubricResultRequest],
+) (*connect.Response[proto.UploadRubricResultResponse], error) {
+	result := req.Msg.Result
+	if result.SubmissionId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("submission_id is required"))
+	}
+
+	// Capture client IP and geo location
+	clientIP := getClientIP(ctx, req)
+	geoLocation := getGeoLocation(clientIP)
+
+	// Create a copy of the result with IP and geo data
+	resultWithIP := &proto.Result{
+		SubmissionId: result.SubmissionId,
+		Timestamp:    result.Timestamp,
+		Rubric:       result.Rubric,
+		IpAddress:    clientIP,
+		GeoLocation:  geoLocation,
+	}
+
+	// Save to persistent storage
+	err := s.storage.SaveResult(ctx, result.SubmissionId, resultWithIP)
+	if err != nil {
+		slog.Error("Failed to save result to storage", "error", err, "submission_id", result.SubmissionId)
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save result: %w", err))
+	}
+
+	slog.Info("Stored rubric result", "submission_id", result.SubmissionId, "items", len(result.Rubric), "ip", clientIP, "location", geoLocation)
+
+	return connect.NewResponse(&proto.UploadRubricResultResponse{
+		SubmissionId: result.SubmissionId,
+		Message:      "Rubric result uploaded successfully",
+	}), nil
 }
 
 // getClientIP extracts the real client IP address from the request
@@ -135,61 +172,4 @@ func getGeoLocation(ip string) string {
 	}
 
 	return location
-}
-
-// UploadRubricResult stores a rubric result
-func (s *RubricServer) UploadRubricResult(
-	ctx context.Context,
-	req *connect.Request[proto.UploadRubricResultRequest],
-) (*connect.Response[proto.UploadRubricResultResponse], error) {
-
-	result := req.Msg.Result
-	if result.SubmissionId == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("submission_id is required"))
-	}
-
-	// Capture client IP and geo location
-	clientIP := getClientIP(ctx, req)
-	geoLocation := getGeoLocation(clientIP)
-
-	// Create a copy of the result with IP and geo data
-	resultWithIP := &proto.Result{
-		SubmissionId: result.SubmissionId,
-		Timestamp:    result.Timestamp,
-		Rubric:       result.Rubric,
-		IpAddress:    clientIP,
-		GeoLocation:  geoLocation,
-	}
-
-	s.mu.Lock()
-	s.results[result.SubmissionId] = resultWithIP
-	s.mu.Unlock()
-
-	slog.Info("Stored rubric result", "submission_id", result.SubmissionId, "items", len(result.Rubric), "ip", clientIP, "location", geoLocation)
-
-	return connect.NewResponse(&proto.UploadRubricResultResponse{
-		SubmissionId: result.SubmissionId,
-		Message:      "Rubric result uploaded successfully",
-	}), nil
-}
-
-// ConvertRubricsResultToProto converts a rubrics.Result to proto.Result
-func ConvertRubricsResultToProto(r *rubrics.Result) *proto.Result {
-	rubricItems := make([]*proto.RubricItem, len(r.Rubric))
-	for i, item := range r.Rubric {
-		rubricItems[i] = &proto.RubricItem{
-			Name:    item.Name,
-			Note:    item.Note,
-			Points:  item.Points,
-			Awarded: item.Awarded,
-		}
-	}
-
-	return &proto.Result{
-		SubmissionId: r.SubmissionID,
-		Timestamp:    r.Timestamp.Format(time.RFC3339),
-		Rubric:       rubricItems,
-		IpAddress:    "unknown", // Not available in rubrics.Result
-		GeoLocation:  "Unknown", // Not available in rubrics.Result
-	}
 }

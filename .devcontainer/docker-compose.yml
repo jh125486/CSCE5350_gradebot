@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../:/workspaces/CSCE5350_gradebot:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /workspaces/CSCE5350_gradebot
+    command: sleep infinity
+    environment:
+      - R2_ENDPOINT=http://localstack:4566
+      - R2_BUCKET=test-gradebot-bucket
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+      - USE_PATH_STYLE=true
+    networks:
+      - gradebot-network
+    depends_on:
+      - localstack
+
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      DEBUG: 1
+      SERVICES: s3
+      DATA_DIR: /tmp/localstack/data
+      DOCKER_HOST: unix:///var/run/docker.sock
+      HOST_TMP_FOLDER: /tmp/localstack
+      LAMBDA_EXECUTOR: docker-reuse
+      LOCALSTACK_API_KEY: ${LOCALSTACK_API_KEY:-}
+      # Pre-create the bucket
+      S3_SKIP_SIGNATURE_VALIDATION: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./init-localstack.sh:/etc/localstack/init/ready.d/init-localstack.sh
+    networks:
+      - gradebot-network
+
+networks:
+  gradebot-network:
+    driver: bridge

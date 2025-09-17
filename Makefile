@@ -4,7 +4,6 @@
 # Variables
 BINARY_NAME := gradebot
 BUILD_DIR := bin
-LDFLAGS := -ldflags "-X gradebotdb.BuildUUID=$(shell uuidgen)"
 
 ## help: Show this help message
 help:
@@ -14,13 +13,13 @@ help:
 build:
 	@echo "Building $(BINARY_NAME)"
 	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
+	go build -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "Build completed successfully: $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## test: Run all tests with coverage
 test:
 	@echo "Running tests..."
-	@go test -v -race -coverprofile=coverage.out ./...
+	@go test -race -coverprofile=coverage.out ./...
 
 ## lint: Run all linting tools
 lint: golangci-lint modernize
@@ -29,7 +28,7 @@ lint: golangci-lint modernize
 ## golangci-lint: Run golangci-lint
 golangci-lint:
 	@echo "Running golangci-lint..."
-	@go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run --fix ./...
+	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --fix ./...
 
 ## modernize: Check for outdated Go patterns and suggest improvements
 modernize:
@@ -42,18 +41,11 @@ modernize:
 	@echo "Checking for outdated dependencies..."
 	@go list -u -m all | grep -v "=>"
 
-## clean: Clean build artifacts and temporary files
-clean:
-	@echo "Cleaning up..."
-	@rm -rf $(BUILD_DIR)
-	@go clean -cache -testcache -modcache
-	@echo "Cleanup completed ✓"
-
 ## fmt: Format code
 fmt:
 	@echo "Formatting code..."
 	@go fmt ./...
-	@goimports -w .
+	@go run golang.org/x/tools/cmd/goimports@latest -w .
 
 ## vet: Run go vet
 vet:

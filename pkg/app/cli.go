@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/alecthomas/kong"
+
 	"github.com/jh125486/CSCE5350_gradebot/pkg/client"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/server"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
 type (
@@ -64,12 +67,20 @@ func New(ctx context.Context, name string, id [32]byte) *kong.Context {
 }
 
 func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
+	// Initialize storage
+	storageCfg := storage.NewConfig()
+	r2Storage, err := storage.NewR2Storage(ctx, storageCfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
 	return server.Start(ctx, server.Config{
 		ID:   buildID,
 		Port: cmd.Port,
 		OpenAIClient: openai.NewClient(cmd.OpenAIKey, &http.Client{
 			Timeout: 35 * time.Second, // Slightly longer than the API timeout
 		}),
+		Storage: r2Storage,
 	})
 }
 

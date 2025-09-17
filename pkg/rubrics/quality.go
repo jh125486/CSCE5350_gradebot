@@ -11,13 +11,14 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
+	"gopkg.in/yaml.v3"
+
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
-	"gopkg.in/yaml.v3"
 )
 
 // EvaluateQuality implements the same behavior as the old gRPC client wrapper.
-func EvaluateQuality(client connect.HTTPClient, serverURL string, instructions string) Evaluator {
+func EvaluateQuality(client connect.HTTPClient, serverURL, instructions string) Evaluator {
 	c := protoconnect.NewQualityServiceClient(client, serverURL)
 
 	return func(ctx context.Context, program ProgramRunner, _ RunBag) RubricItem {

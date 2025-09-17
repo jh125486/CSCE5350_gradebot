@@ -9,9 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 )
 
 // kvStoreMock simulates a persistent key-value store and file creation for rubric tests
@@ -48,12 +49,14 @@ func (m *kvStoreMock) Run(args ...string) error {
 	}
 	return nil
 }
+
 func (m *kvStoreMock) Kill() error {
 	if m.clearOnRestart {
 		m.store = make(map[string]string)
 	}
 	return m.killErr
 }
+
 func (m *kvStoreMock) Do(input string) ([]string, []string, error) {
 	m.doCallCount++
 	if m.doErr != nil {
@@ -74,8 +77,8 @@ func (m *kvStoreMock) Do(input string) ([]string, []string, error) {
 			// Create the actual data.db file in the temp directory only if fileCreated is true
 			if m.fileCreated {
 				dataFilePath := filepath.Join(m.tempDir, rubrics.DataFileName)
-				if err := os.WriteFile(dataFilePath, []byte("mock data"), 0644); err != nil {
-					return nil, nil, fmt.Errorf("failed to create data file: %v", err)
+				if err := os.WriteFile(dataFilePath, []byte("mock data"), 0o644); err != nil {
+					return nil, nil, fmt.Errorf("failed to create data file: %w", err)
 				}
 			}
 		}
@@ -320,7 +323,6 @@ func (s *simpleMockProgram) Do(in string) ([]string, []string, error) {
 func (s *simpleMockProgram) Kill() error { return nil }
 
 func TestEvaluateSetGet_Table(t *testing.T) {
-
 	tests := []struct {
 		name           string
 		responses      func(bag rubrics.RunBag) []resp
