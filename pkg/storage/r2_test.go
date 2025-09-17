@@ -139,9 +139,18 @@ func TestR2Storage_ErrorHandling(t *testing.T) {
 }
 
 func TestR2Storage_BucketCreation(t *testing.T) {
-	// Test bucket creation with LocalStack
+	// Skip if LocalStack is not available
+	if os.Getenv("SKIP_LOCALSTACK_TESTS") == "true" {
+		t.Skip("Skipping LocalStack tests")
+	}
+
+	// Configure for LocalStack
+	endpoint := os.Getenv("R2_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "http://localhost:4566"
+	}
 	cfg := &Config{
-		Endpoint:        "http://localstack:4566",
+		Endpoint:        endpoint,
 		Bucket:          "test-new-bucket-" + strconv.FormatInt(time.Now().Unix(), 10), // Use unique name
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
