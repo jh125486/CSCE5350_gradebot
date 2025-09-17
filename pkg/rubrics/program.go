@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,6 +28,11 @@ type Program struct {
 
 // NewProgram creates a new Program instance.
 func NewProgram(workDir, runCmd string, factory CommandFactory) *Program {
+	// Convert relative paths to absolute paths to avoid issues with os.Chdir
+	if absDir, err := filepath.Abs(workDir); err == nil {
+		workDir = absDir
+	}
+
 	return &Program{
 		WorkDir:    workDir,
 		RunCmd:     strings.Fields(runCmd),

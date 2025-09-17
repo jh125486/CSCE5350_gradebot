@@ -66,6 +66,11 @@
     }
   },
 
+  // Mount SSH agent socket for Git authentication
+  "mounts": [
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind,consistency=cached"
+  ],
+
   // Use 'postCreateCommand' to run commands after the container is created.
   "postCreateCommand": "go mod download && go mod tidy",
 
@@ -79,6 +84,7 @@
     "AWS_ACCESS_KEY_ID": "test",
     "AWS_SECRET_ACCESS_KEY": "test",
     "AWS_REGION": "us-east-1",
-    "USE_PATH_STYLE": "true"
+    "USE_PATH_STYLE": "true",
+    "SSH_AUTH_SOCK": "/ssh-agent"
   }
 }

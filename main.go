@@ -18,9 +18,7 @@ var buildID string
 
 func main() {
 	// Load .env file if it exists
-	if err := godotenv.Load(); err != nil {
-		log.Printf("No .env file found or error loading it: %v", err)
-	}
+	_ = godotenv.Load()
 
 	if buildID == "" {
 		buildID = os.Getenv("BUILD_ID")
