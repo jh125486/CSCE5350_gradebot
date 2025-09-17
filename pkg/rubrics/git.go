@@ -14,7 +14,7 @@ import (
 // from the provided billy filesystem. The returned Evaluator conforms to the
 // package's Evaluator type so it can be run as part of the grading flow.
 func EvaluateGit(repoFS billy.Filesystem) Evaluator {
-	return func(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
+	return func(_ context.Context, _ ProgramRunner, _ RunBag) RubricItem {
 		rubricItem := func(msg string, awarded float64) RubricItem {
 			return RubricItem{
 				Name:    "Git Repository",

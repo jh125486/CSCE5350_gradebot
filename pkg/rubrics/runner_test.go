@@ -2,6 +2,7 @@ package rubrics
 
 import (
 	"bytes"
+	"context"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -76,7 +77,7 @@ func TestExecCmd_ProcessKill_NoProcess(t *testing.T) {
 // This uses a short-lived sleep process and then kills it.
 func TestExecCmd_ProcessKill_KillsProcess(t *testing.T) {
 	// Start a long-running process we can kill
-	cmd := exec.Command("sleep", "60")
+	cmd := exec.CommandContext(context.Background(), "sleep", "60")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start sleep command: %v", err)
 	}

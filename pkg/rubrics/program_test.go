@@ -61,6 +61,7 @@ type MockCommandFactory struct {
 	mock.Mock
 }
 
+//nolint:ireturn // This is the correct type to return
 func (m *MockCommandFactory) New(name string, arg ...string) Commander {
 	args := m.Called(name, arg)
 	return args.Get(0).(Commander)

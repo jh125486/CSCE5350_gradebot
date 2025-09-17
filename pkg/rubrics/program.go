@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	// ProgramRunner defined in rubrics/types.go now
 )
 
 // Program implements the ProgramRunner interface using a CommandFactory

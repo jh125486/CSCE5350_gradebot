@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -89,38 +87,7 @@ func (m *mockConnectRequest) Header() http.Header {
 
 // getClientIPFromMock is a test version of getClientIP that works with our mock
 func getClientIPFromMock(ctx context.Context, req *mockConnectRequest) string {
-	// Method 1: Try to get from context (set by realIP middleware)
-	if realIP, ok := ctx.Value(realIPKey).(string); ok && realIP != "" && realIP != "unknown" {
-		return realIP
-	}
-
-	// Method 2: Try to extract from HTTP headers in the Connect request
-	headers := req.Header()
-	if xff := headers.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP from comma-separated list
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			if ip := strings.TrimSpace(ips[0]); ip != "" && ip != "unknown" {
-				return ip
-			}
-		}
-	}
-	if xri := headers.Get("X-Real-IP"); xri != "" && xri != "unknown" {
-		return xri
-	}
-	if cfip := headers.Get("CF-Connecting-IP"); cfip != "" && cfip != "unknown" {
-		return cfip
-	}
-
-	// Method 3: Try peer info as fallback
-	peer := req.Peer()
-	if peer.Addr != "" {
-		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
-			return ip
-		}
-		return peer.Addr
-	}
-
-	return "unknown"
+	return extractClientIP(ctx, req)
 }
 
 func TestStart_InvalidPort(t *testing.T) {
@@ -262,7 +229,7 @@ func TestGetClientIP(t *testing.T) {
 			name:     "UnknownFallback",
 			headers:  map[string]string{},
 			peerAddr: "",
-			expected: "unknown",
+			expected: unknownIP,
 		},
 	}
 
@@ -319,22 +286,22 @@ func TestGetGeoLocation(t *testing.T) {
 		{
 			name:     "EmptyIP",
 			ip:       "",
-			expected: "Local/Unknown",
+			expected: localUnknown,
 		},
 		{
 			name:     "UnknownIP",
-			ip:       "unknown",
-			expected: "Local/Unknown",
+			ip:       unknownIP,
+			expected: localUnknown,
 		},
 		{
 			name:     "LocalhostIPv4",
 			ip:       "127.0.0.1",
-			expected: "Local/Unknown",
+			expected: localUnknown,
 		},
 		{
 			name:     "LocalhostIPv6",
 			ip:       "::1",
-			expected: "Local/Unknown",
+			expected: localUnknown,
 		},
 		{
 			name:     "ValidIP",
@@ -612,7 +579,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 						{Name: "Item 1", Points: 0.0, Awarded: 0.0, Note: "No points"},
 					},
 					IpAddress:   "127.0.0.1",
-					GeoLocation: "Local/Unknown",
+					GeoLocation: localUnknown,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
@@ -713,7 +680,7 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 						{Name: "Item 1", Points: 0.0, Awarded: 0.0, Note: "No points"},
 					},
 					IpAddress:   "127.0.0.1",
-					GeoLocation: "Local/Unknown",
+					GeoLocation: localUnknown,
 				},
 			},
 			expectedStatusCode: http.StatusOK,

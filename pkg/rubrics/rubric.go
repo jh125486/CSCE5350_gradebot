@@ -9,7 +9,7 @@ import (
 
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/olekukonko/tablewriter"
-	tw "github.com/olekukonko/tablewriter/tw"
+	"github.com/olekukonko/tablewriter/tw"
 )
 
 type (

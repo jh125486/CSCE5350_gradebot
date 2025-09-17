@@ -91,7 +91,7 @@ func EvaluatePersistenceAfterRestart(ctx context.Context, program ProgramRunner,
 }
 
 // EvaluateNonexistentGet checks GET on a nonexistent key
-func EvaluateNonexistentGet(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
+func EvaluateNonexistentGet(ctx context.Context, program ProgramRunner, _ RunBag) RubricItem {
 	rubricItem := func(msg string, awarded float64) RubricItem {
 		return RubricItem{
 			Name:    "NonexistentGet",

@@ -42,7 +42,7 @@ type (
 	}
 )
 
-func (c *CommonProjectArgs) AfterApply(ctx Context, buildID string) error {
+func (c *CommonProjectArgs) AfterApply(_ Context, buildID string) error {
 	httpClient := &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: client.NewAuthTransport(buildID, http.DefaultTransport),

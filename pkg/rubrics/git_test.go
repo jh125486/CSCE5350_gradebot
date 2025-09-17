@@ -58,10 +58,8 @@ func TestEvaluateGit(t *testing.T) {
 			wantNoteContains: "",
 		},
 		{
-			name: "OpenFails",
-			setupFS: func() billy.Filesystem {
-				return memfs.New() // No .git directory
-			},
+			name:             "OpenFails",
+			setupFS:          memfs.New, // No .git directory
 			wantPoints:       0,
 			wantNoteContains: "failed to open git repo",
 		},

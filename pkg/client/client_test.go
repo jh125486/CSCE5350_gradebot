@@ -35,10 +35,12 @@ func TestAuthRoundTripper_SetsHeader(t *testing.T) {
 	defer srv.Close()
 
 	client := &http.Client{Transport: rt}
-	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
-	if _, err := client.Do(req); err != nil {
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer resp.Body.Close()
 }
 
 func TestExecuteProject1_NewResultError(t *testing.T) {
@@ -80,7 +82,8 @@ func (s *successQualityServer) EvaluateCodeQuality(ctx context.Context, req *con
 }
 
 func TestExecuteProject1_SuccessPath(t *testing.T) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

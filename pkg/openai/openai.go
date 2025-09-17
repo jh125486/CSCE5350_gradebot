@@ -83,7 +83,8 @@ Evaluate:
 3) Readability & documentation
 4) Overall code quality
 Language anchors (apply only if relevant):
-- Go: package layout; exported vs unexported; error wrapping; context propagation; small interfaces; composition; gofmt/vet; no panic for control flow.
+- Go: package layout; exported vs unexported; error wrapping; context propagation; small interfaces; 
+  composition; gofmt/vet; no panic for control flow.
 - Python: PEP 8/257/484; type hints; docstrings; context managers; avoid bare except; f-strings; logical module layout.
 - JS/TS: modules; const/let; strict equality; async/await with error paths; TS types on public surfaces; consistent null handling.
 - Java: packages; immutability where reasonable; try-with-resources; exceptions; concise methods; Javadoc.

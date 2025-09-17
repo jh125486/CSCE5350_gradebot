@@ -139,7 +139,7 @@ func ExecuteProject1(ctx context.Context, cfg Config) error {
 }
 
 // Project2Cmd is the kong command for project2.
-func ExecuteProject2(ctx context.Context, cfg Config) error {
+func ExecuteProject2(_ context.Context, _ Config) error {
 	// Implementation for executing project2
 	return nil
 }

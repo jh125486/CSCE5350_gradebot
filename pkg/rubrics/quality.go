@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/bufbuild/connect-go"
-	gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"gopkg.in/yaml.v3"
 
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
@@ -100,6 +100,8 @@ func loadFiles(source, configFS fs.FS) ([]*pb.File, error) {
 }
 
 // LoadExcludeMatcher loads the filter configuration from the specified file path
+//
+//nolint:ireturn // This is the correct type to return
 func LoadExcludeMatcher(fileSystem fs.FS) (gitignore.Matcher, error) {
 	// Load the embedded configuration
 	f, err := fileSystem.Open("exclude.yaml")

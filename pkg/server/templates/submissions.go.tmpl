@@ -65,12 +65,12 @@
                 <tbody>
                     {{range .Submissions}}
                     <tr>
-                        <td><a href="/submissions/{{.SubmissionId}}" class="submission-link"><code class="submission-id">{{.SubmissionId}}</code> 🔗</a></td>
+                        <td><a href="/submissions/{{.SubmissionID}}" class="submission-link"><code class="submission-id">{{.SubmissionID}}</code> 🔗</a></td>
                         <td>{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
                         <td>{{printf "%.1f" .TotalPoints}}</td>
                         <td>{{printf "%.1f" .AwardedPoints}}</td>
                         <td><span class="percentage {{if ge .Score 80.0}}high{{else if ge .Score 60.0}}medium{{else}}low{{end}}">{{printf "%.1f" .Score}}%</span></td>
-                        <td><code class="submission-id">{{.IpAddress}}</code></td>
+                        <td><code class="submission-id">{{.IPAddress}}</code></td>
                         <td>{{.GeoLocation}}</td>
                     </tr>
                     {{end}}
