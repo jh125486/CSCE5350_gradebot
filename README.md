@@ -3,6 +3,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/jh125486/CSCE5350_gradebot)](https://golang.org/)
 [![Build Status](https://github.com/jh125486/CSCE5350_gradebot/workflows/test/badge.svg)](https://github.com/jh125486/CSCE5350_gradebot/actions)
 [![Coverage Status](https://codecov.io/gh/jh125486/CSCE5350_gradebot/branch/main/graph/badge.svg)](https://codecov.io/gh/jh125486/CSCE5350_gradebot)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=jh125486_CSCE5350_gradebot&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=jh125486_CSCE5350_gradebot)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jh125486/CSCE5350_gradebot)](https://goreportcard.com/report/github.com/jh125486/CSCE5350_gradebot)
 [![Release](https://img.shields.io/github/release/jh125486/CSCE5350_gradebot.svg)](https://github.com/jh125486/CSCE5350_gradebot/releases)
 

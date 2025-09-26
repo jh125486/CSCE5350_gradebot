@@ -1,0 +1,13 @@
+{
+  "configType": "DEFAULT",
+  "type": "client",
+  "token": "${WS_APIKEY}",
+  "userKey": "${WS_USERKEY}",
+  "productName": "CSCE5350_gradebot",
+  "projectName": "CSCE5350_gradebot",
+  "appPath": ".",
+  "requirements_file_includes": ["go.mod", "go.sum"],
+  "log.level": "INFO",
+  "case.sensitive.glob": "false",
+  "followSymbolicLinks": true
+}
