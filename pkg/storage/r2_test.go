@@ -23,6 +23,7 @@ func skipIfNoEndpoint(t *testing.T) {
 }
 
 func TestNewConfig(t *testing.T) {
+	skipIfNoEndpoint(t)
 	t.Parallel()
 
 	tests := []struct {
@@ -99,6 +100,7 @@ func TestNewConfig(t *testing.T) {
 }
 
 func TestNewR2Storage(t *testing.T) {
+	skipIfNoEndpoint(t)
 	t.Parallel()
 
 	tests := []struct {
@@ -139,7 +141,8 @@ func TestNewR2Storage(t *testing.T) {
 				SecretAccessKey: "test",
 				UsePathStyle:    false,
 			},
-			wantError: true, // Virtual hosting requires DNS setup, fails with LocalStack
+			// Virtual hosting works with localhost but fails with custom hostnames like 'localstack'
+			wantError: strings.Contains(os.Getenv("R2_ENDPOINT"), "localhost") == false,
 			errorMsg:  "failed to ensure bucket exists",
 		},
 		{
