@@ -82,7 +82,7 @@ jobs:
           USE_PATH_STYLE: true
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           file: ./coverage.out
 
