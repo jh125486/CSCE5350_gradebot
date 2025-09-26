@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,7 +22,6 @@ type Storage interface {
 	SaveResult(ctx context.Context, submissionID string, result *proto.Result) error
 	LoadResult(ctx context.Context, submissionID string) (*proto.Result, error)
 	ListResults(ctx context.Context) (map[string]*proto.Result, error)
-	Close() error
 }
 
 // Config holds storage configuration
@@ -42,28 +39,22 @@ type Config struct {
 	UsePathStyle bool
 }
 
-// NewConfig creates storage config from environment variables
-func NewConfig() *Config {
-	usePathStyle, _ := strconv.ParseBool(os.Getenv("USE_PATH_STYLE"))
-	bucket := os.Getenv("R2_BUCKET")
+// NewConfig creates storage config from provided parameters
+func NewConfig(endpoint, region, bucket, accessKeyID, secretAccessKey string, usePathStyle bool) *Config {
 	if bucket == "" {
 		bucket = "gradebot-storage" // Default bucket name
 	}
+	if region == "" {
+		region = "auto" // Default region
+	}
 	return &Config{
-		Endpoint:        os.Getenv("R2_ENDPOINT"),
-		Region:          getEnvOrDefault("AWS_REGION", "auto"),
+		Endpoint:        endpoint,
+		Region:          region,
 		Bucket:          bucket,
-		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
-		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
 		UsePathStyle:    usePathStyle,
 	}
-}
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }
 
 // R2Storage implements Storage using Cloudflare R2 (S3-compatible)
@@ -74,9 +65,6 @@ type R2Storage struct {
 
 // NewR2Storage creates a new R2 storage instance
 func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
-	var awsCfg aws.Config
-	var err error
-
 	// Determine region based on addressing style
 	region := cfg.Region
 	if cfg.UsePathStyle {
@@ -90,7 +78,7 @@ func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
 		slog.Info("Using virtual-hosted addressing for storage", "endpoint", cfg.Endpoint, "region", region)
 	}
 
-	awsCfg, err = config.LoadDefaultConfig(ctx,
+	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AccessKeyID,
@@ -256,11 +244,5 @@ func (r *R2Storage) ensureBucketExists(ctx context.Context) error {
 	}
 
 	slog.Info("Bucket already exists", "bucket", r.bucket)
-	return nil
-}
-
-// Close closes the storage connection
-func (r *R2Storage) Close() error {
-	// AWS SDK handles connection pooling automatically
 	return nil
 }

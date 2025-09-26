@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/bufbuild/connect-go"
 
@@ -21,6 +20,7 @@ type RubricServer struct {
 	protoconnect.UnimplementedRubricServiceHandler
 	storage   storage.Storage
 	templates *TemplateManager
+	geoClient *GeoLocationClient
 }
 
 // NewRubricServer creates a new RubricServer with persistent storage
@@ -28,6 +28,9 @@ func NewRubricServer(storage storage.Storage) *RubricServer {
 	return &RubricServer{
 		storage:   storage,
 		templates: NewTemplateManager(),
+		geoClient: &GeoLocationClient{
+			Client: &http.Client{},
+		},
 	}
 }
 
@@ -43,7 +46,7 @@ func (s *RubricServer) UploadRubricResult(
 
 	// Capture client IP and geo location
 	clientIP := getClientIP(ctx, req)
-	geoLocation := getGeoLocation(clientIP)
+	geoLocation := s.geoClient.Do(clientIP)
 
 	// Create a copy of the result with IP and geo data
 	resultWithIP := &proto.Result{
@@ -84,8 +87,13 @@ type GeoLocation struct {
 	Country string `json:"country_name"`
 }
 
-// getGeoLocation fetches geo location data for an IP address
-func getGeoLocation(ip string) string {
+// GeoLocationClient handles geo location lookups
+type GeoLocationClient struct {
+	*http.Client
+}
+
+// Do fetches geo location data for an IP address
+func (c *GeoLocationClient) Do(ip string) string {
 	if ip == "" || ip == unknownIP || ip == "127.0.0.1" || ip == "::1" {
 		return localUnknown
 	}
@@ -93,13 +101,12 @@ func getGeoLocation(ip string) string {
 	// Use ipapi.co for free geo location lookup
 	url := fmt.Sprintf("http://ipapi.co/%s/json/", ip)
 
-	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		slog.Warn("Failed to create geo location request", "ip", ip, "error", err)
 		return unknownLocation
 	}
-	resp, err := client.Do(req)
+	resp, err := c.Client.Do(req)
 	if err != nil {
 		slog.Warn("Failed to fetch geo location", "ip", ip, "error", err)
 		return unknownLocation

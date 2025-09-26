@@ -35,6 +35,12 @@ func TestProject1Cmd_Run_ErrorOnBadDir(t *testing.T) {
 			RunCmd:    "",
 		},
 	}
+
+	// Initialize the HTTP client like Kong would do
+	if err := p.AfterApply(app.Context{}, "test-build-id"); err != nil {
+		t.Fatalf("AfterApply failed: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	if err := p.Run(app.Context{ctx}); err != nil {
@@ -50,6 +56,12 @@ func TestProject2Cmd_Run_ErrorOnBadDir(t *testing.T) {
 			RunCmd:    "",
 		},
 	}
+
+	// Initialize the HTTP client like Kong would do
+	if err := p.AfterApply(app.Context{}, "test-build-id"); err != nil {
+		t.Fatalf("AfterApply failed: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 	if err := p.Run(app.Context{ctx}); err != nil {

@@ -53,9 +53,8 @@ func TestResult_ToTable(t *testing.T) {
 			res := &r.Result{SubmissionID: tc.submissionID, Rubric: tc.items}
 
 			var buf bytes.Buffer
-			if err := res.ToTable(&buf); err != nil {
-				t.Fatalf("ToTable() returned error: %v", err)
-			}
+			res.Render(&buf)
+
 			out := buf.String()
 
 			for _, it := range tc.items {
@@ -75,9 +74,7 @@ func TestResult_ToTable_NilWriter(t *testing.T) {
 
 	res := &r.Result{SubmissionID: "test", Rubric: []r.RubricItem{{Name: "A", Note: "ok", Points: 5, Awarded: 5}}}
 	// Should not panic or error
-	if err := res.ToTable(nil); err != nil {
-		t.Fatalf("ToTable(nil) returned error: %v", err)
-	}
+	res.Render(nil)
 }
 
 func TestNewResult(t *testing.T) {

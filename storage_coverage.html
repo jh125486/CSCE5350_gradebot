@@ -1,0 +1,351 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>storage: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/jh125486/CSCE5350_gradebot/pkg/storage/r2.go (82.9%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package storage
+
+import (
+        "bytes"
+        "context"
+        "fmt"
+        "io"
+        "log/slog"
+        "time"
+
+        "github.com/aws/aws-sdk-go-v2/aws"
+        "github.com/aws/aws-sdk-go-v2/config"
+        "github.com/aws/aws-sdk-go-v2/credentials"
+        "github.com/aws/aws-sdk-go-v2/service/s3"
+        "google.golang.org/protobuf/encoding/protojson"
+
+        "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
+)
+
+// Storage defines the interface for persistent storage of rubric results
+type Storage interface {
+        SaveResult(ctx context.Context, submissionID string, result *proto.Result) error
+        LoadResult(ctx context.Context, submissionID string) (*proto.Result, error)
+        ListResults(ctx context.Context) (map[string]*proto.Result, error)
+}
+
+// Config holds storage configuration
+type Config struct {
+        // For production R2/Cloudflare
+        Endpoint string
+        Region   string
+        Bucket   string
+
+        // Credentials
+        AccessKeyID     string
+        SecretAccessKey string
+
+        // Addressing style
+        UsePathStyle bool
+}
+
+// NewConfig creates storage config from provided parameters
+func NewConfig(endpoint, region, bucket, accessKeyID, secretAccessKey string, usePathStyle bool) *Config <span class="cov8" title="1">{
+        if bucket == "" </span><span class="cov8" title="1">{
+                bucket = "gradebot-storage" // Default bucket name
+        }</span>
+        <span class="cov8" title="1">if region == "" </span><span class="cov8" title="1">{
+                region = "auto" // Default region
+        }</span>
+        <span class="cov8" title="1">return &amp;Config{
+                Endpoint:        endpoint,
+                Region:          region,
+                Bucket:          bucket,
+                AccessKeyID:     accessKeyID,
+                SecretAccessKey: secretAccessKey,
+                UsePathStyle:    usePathStyle,
+        }</span>
+}
+
+// R2Storage implements Storage using Cloudflare R2 (S3-compatible)
+type R2Storage struct {
+        client *s3.Client
+        bucket string
+}
+
+// NewR2Storage creates a new R2 storage instance
+func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) <span class="cov8" title="1">{
+        // Determine region based on addressing style
+        region := cfg.Region
+        if cfg.UsePathStyle </span><span class="cov8" title="1">{
+                // LocalStack typically uses us-east-1
+                region = "us-east-1"
+        }</span>
+
+        <span class="cov8" title="1">if cfg.UsePathStyle </span><span class="cov8" title="1">{
+                slog.Info("Using path-style addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+        }</span> else<span class="cov0" title="0"> {
+                slog.Info("Using virtual-hosted addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+        }</span>
+
+        <span class="cov8" title="1">awsCfg, err := config.LoadDefaultConfig(ctx,
+                config.WithRegion(region),
+                config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+                        cfg.AccessKeyID,
+                        cfg.SecretAccessKey,
+                        "",
+                )),
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to load AWS config: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">client := s3.NewFromConfig(awsCfg, func(o *s3.Options) </span><span class="cov8" title="1">{
+                o.UsePathStyle = cfg.UsePathStyle
+                o.BaseEndpoint = &amp;cfg.Endpoint
+        }</span>)
+
+        <span class="cov8" title="1">storage := &amp;R2Storage{
+                client: client,
+                bucket: cfg.Bucket,
+        }
+
+        // Ensure bucket exists, create if it doesn't
+        if err := storage.ensureBucketExists(ctx); err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to ensure bucket exists: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return storage, nil</span>
+}
+
+// SaveResult saves a rubric result to storage
+func (r *R2Storage) SaveResult(ctx context.Context, submissionID string, result *proto.Result) error <span class="cov8" title="1">{
+        start := time.Now()
+        marshaler := protojson.MarshalOptions{
+                UseProtoNames:   true,
+                EmitUnpopulated: true,
+        }
+        data, err := marshaler.Marshal(result)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to marshal result: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">key := fmt.Sprintf("submissions/%s.json", submissionID)
+
+        _, err = r.client.PutObject(ctx, &amp;s3.PutObjectInput{
+                Bucket:      &amp;r.bucket,
+                Key:         &amp;key,
+                Body:        bytes.NewReader(data),
+                ContentType: aws.String("application/json"),
+        })
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to save result to R2: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">slog.Info("Saved rubric result",
+                slog.String("submission_id", submissionID),
+                slog.String("bucket", r.bucket),
+                slog.Duration("duration", time.Since(start)),
+        )
+
+        return nil</span>
+}
+
+// LoadResult loads a rubric result from storage
+func (r *R2Storage) LoadResult(ctx context.Context, submissionID string) (*proto.Result, error) <span class="cov8" title="1">{
+        start := time.Now()
+        key := fmt.Sprintf("submissions/%s.json", submissionID)
+
+        resp, err := r.client.GetObject(ctx, &amp;s3.GetObjectInput{
+                Bucket: &amp;r.bucket,
+                Key:    &amp;key,
+        })
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to load result from R2: %w", err)
+        }</span>
+        <span class="cov8" title="1">defer resp.Body.Close()
+
+        data, err := io.ReadAll(resp.Body)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to read response body: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">var result proto.Result
+        unmarshaler := protojson.UnmarshalOptions{
+                DiscardUnknown: true,
+        }
+        if err := unmarshaler.Unmarshal(data, &amp;result); err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to decode result: %w", err)
+        }</span>
+        <span class="cov8" title="1">slog.Info("Loaded rubric result",
+                slog.String("submission_id", submissionID),
+                slog.String("bucket", r.bucket),
+                slog.Duration("duration", time.Since(start)),
+        )
+
+        return &amp;result, nil</span>
+}
+
+// ListResults loads all rubric results from storage
+func (r *R2Storage) ListResults(ctx context.Context) (map[string]*proto.Result, error) <span class="cov8" title="1">{
+        start := time.Now()
+        results := make(map[string]*proto.Result)
+
+        // List all objects with submissions/ prefix
+        resp, err := r.client.ListObjectsV2(ctx, &amp;s3.ListObjectsV2Input{
+                Bucket: &amp;r.bucket,
+                Prefix: aws.String("submissions/"),
+        })
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to list objects: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">for _, obj := range resp.Contents </span><span class="cov8" title="1">{
+                if obj.Key == nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                // Extract submission ID from key (submissions/{id}.json)
+                <span class="cov8" title="1">key := *obj.Key
+                if len(key) &lt; 13 || key[len(key)-5:] != ".json" </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">submissionID := key[12 : len(key)-5] // Remove "submissions/" prefix and ".json" suffix
+
+                result, err := r.LoadResult(ctx, submissionID)
+                if err != nil </span><span class="cov0" title="0">{
+                        slog.Warn("Failed to load result", "submission_id", submissionID, "error", err)
+                        continue</span>
+                }
+
+                <span class="cov8" title="1">results[submissionID] = result</span>
+        }
+        <span class="cov8" title="1">slog.Info("Listed rubric results",
+                slog.Int("count", len(results)),
+                slog.String("bucket", r.bucket),
+                slog.Duration("duration", time.Since(start)),
+        )
+
+        return results, nil</span>
+}
+
+// ensureBucketExists checks if the bucket exists and creates it if it doesn't
+func (r *R2Storage) ensureBucketExists(ctx context.Context) error <span class="cov8" title="1">{
+        // Try to check if bucket exists by listing objects (HeadBucket might not work with all S3-compatible services)
+        _, err := r.client.ListObjectsV2(ctx, &amp;s3.ListObjectsV2Input{
+                Bucket:  &amp;r.bucket,
+                MaxKeys: aws.Int32(1), // Just check if we can access the bucket
+        })
+        if err != nil </span><span class="cov8" title="1">{
+                // If bucket doesn't exist, try to create it
+                slog.Info("Bucket does not exist, attempting to create", "bucket", r.bucket)
+
+                _, createErr := r.client.CreateBucket(ctx, &amp;s3.CreateBucketInput{
+                        Bucket: &amp;r.bucket,
+                })
+
+                if createErr != nil </span><span class="cov8" title="1">{
+                        return fmt.Errorf("failed to create bucket %s: %w", r.bucket, createErr)
+                }</span>
+
+                <span class="cov8" title="1">slog.Info("Successfully created bucket", "bucket", r.bucket)
+                return nil</span>
+        }
+
+        <span class="cov0" title="0">slog.Info("Bucket already exists", "bucket", r.bucket)
+        return nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

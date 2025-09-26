@@ -23,7 +23,8 @@ type Config struct {
 	Dir    string
 	RunCmd string
 
-	Client *http.Client
+	// Connect client for the QualityService
+	QualityClient protoconnect.QualityServiceClient
 
 	// Connect client for the RubricService
 	RubricClient protoconnect.RubricServiceClient
@@ -56,7 +57,7 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // uploadRubricResult uploads the rubric result to the server using Connect
-func uploadRubricResult(ctx context.Context, cfg Config, result *rubrics.Result) error {
+func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient, result *rubrics.Result) error {
 	// Convert rubrics.Result to protobuf format
 	rubricItems := make([]*proto.RubricItem, len(result.Rubric))
 	for i, item := range result.Rubric {
@@ -76,14 +77,15 @@ func uploadRubricResult(ctx context.Context, cfg Config, result *rubrics.Result)
 		},
 	})
 
-	resp, err := cfg.RubricClient.UploadRubricResult(ctx, req)
+	resp, err := c.UploadRubricResult(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to upload result: %w", err)
 	}
 
 	slog.Info("Successfully uploaded rubric result",
 		"submission_id", result.SubmissionID,
-		"response", resp.Msg)
+		"response", resp.Msg,
+	)
 
 	return nil
 }
@@ -107,32 +109,33 @@ func ExecuteProject1(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	for _, evaluator := range []rubrics.Evaluator{
+	items := []rubrics.Evaluator{
 		rubrics.EvaluateGit(osfs.New(cfg.Dir)),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
 		rubrics.EvaluateOverwriteKey,
 		rubrics.EvaluateNonexistentGet,
 		rubrics.EvaluatePersistenceAfterRestart,
-		rubrics.EvaluateQuality(cfg.Client, cfg.ServerURL, instructionsFor("project1")),
-	} {
+	}
+	if cfg.QualityClient != nil {
+		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, instructionsFor("project1")))
+	}
+	for _, item := range items {
 		evalCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		results.Rubric = append(results.Rubric, evaluator(evalCtx, program, bag))
+		results.Rubric = append(results.Rubric, item(evalCtx, program, bag))
 	}
 
 	// Print rubric table to configured writer (default to stdout)
-	if err := results.ToTable(cfg.Writer); err != nil {
-		return err
-	}
+	results.Render(cfg.Writer)
 
 	// Upload the results to the server
-	if cfg.Client != nil {
-		if err := uploadRubricResult(ctx, cfg, results); err != nil {
+	if cfg.RubricClient != nil {
+		if err := uploadRubricResult(ctx, cfg.RubricClient, results); err != nil {
 			slog.Error("Failed to upload rubric result", "error", err)
 		}
 	} else {
-		slog.Info("Skipping upload - no HTTP client configured")
+		slog.Info("Skipping upload - no rubric client configured")
 	}
 
 	return nil

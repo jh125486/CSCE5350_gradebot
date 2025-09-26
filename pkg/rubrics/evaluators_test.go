@@ -547,3 +547,76 @@ func (m *MockProgramRunner) Do(input string) ([]string, []string, error) {
 func (m *MockProgramRunner) Kill() error {
 	return nil
 }
+
+func TestReset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setupFunc func(string) error
+		wantError bool
+	}{
+		{
+			name: "Success - file exists and gets removed",
+			setupFunc: func(tempDir string) error {
+				// Create data.db file
+				dataFile := filepath.Join(tempDir, rubrics.DataFileName)
+				return os.WriteFile(dataFile, []byte("test"), 0644)
+			},
+			wantError: false,
+		},
+		{
+			name: "Success - file doesn't exist",
+			setupFunc: func(tempDir string) error {
+				// Don't create any file
+				return nil
+			},
+			wantError: false,
+		},
+		{
+			name: "Error - file exists but can't be removed",
+			setupFunc: func(tempDir string) error {
+				// Create data.db file but make directory read-only
+				dataFile := filepath.Join(tempDir, rubrics.DataFileName)
+				if err := os.WriteFile(dataFile, []byte("test"), 0644); err != nil {
+					return err
+				}
+				// Make directory read-only to prevent removal
+				return os.Chmod(tempDir, 0555)
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			mock := &kvStoreMock{tempDir: tempDir}
+
+			// Setup test condition
+			if err := tt.setupFunc(tempDir); err != nil {
+				t.Fatalf("Setup failed: %v", err)
+			}
+
+			// Restore directory permissions after test
+			defer func() {
+				os.Chmod(tempDir, 0755)
+			}()
+
+			// Execute Reset
+			err := rubrics.Reset(mock)
+
+			if tt.wantError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to remove existing data.db")
+			} else {
+				assert.NoError(t, err)
+
+				// Verify file was removed if it existed
+				dataFile := filepath.Join(tempDir, rubrics.DataFileName)
+				_, err := os.Stat(dataFile)
+				assert.True(t, os.IsNotExist(err), "data.db should not exist after Reset")
+			}
+		})
+	}
+}

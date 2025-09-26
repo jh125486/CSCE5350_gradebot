@@ -73,7 +73,7 @@ type ExecCommandFactory struct {
 
 // New creates a new execCmd wrapper.
 //
-//nolint:ireturn // This is the correct type to return
+//nolint:ireturn // Factory method intentionally returns interface
 func (f *ExecCommandFactory) New(name string, arg ...string) Commander {
 	return &execCmd{Cmd: exec.CommandContext(f.Context, name, arg...)}
 }

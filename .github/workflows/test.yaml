@@ -59,15 +59,6 @@ jobs:
         run: |
           # Install awslocal for easier LocalStack interaction
           pip install awscli-local
-          
-          # Create the test buckets
-          awslocal s3 mb s3://test-gradebot-bucket
-          awslocal s3 mb s3://gradebot-prod-bucket
-          awslocal s3 mb s3://gradebot-staging-bucket
-          
-          # Verify buckets were created
-          echo "Available buckets:"
-          awslocal s3 ls
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test

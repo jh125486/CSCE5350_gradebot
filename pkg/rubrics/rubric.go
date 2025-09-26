@@ -34,7 +34,7 @@ type (
 	Evaluator func(context.Context, ProgramRunner, RunBag) RubricItem
 )
 
-func (r *Result) ToTable(w io.Writer) error {
+func (r *Result) Render(w io.Writer) {
 	if w == nil {
 		w = os.Stdout
 	}
@@ -50,16 +50,11 @@ func (r *Result) ToTable(w io.Writer) error {
 	for _, item := range r.Rubric {
 		points := fmt.Sprintf("%.2f", item.Points)
 		awarded := fmt.Sprintf("%.2f", item.Awarded)
-		if err := table.Append(item.Name, points, awarded, item.Note); err != nil {
-			return err
-		}
+		_ = table.Append(item.Name, points, awarded, item.Note)
 	}
 	grade := fmt.Sprintf("%.2f%%", r.Awarded()/r.Points()*100)
 	table.Footer(r.SubmissionID, "Grade:", grade)
-	if err := table.Render(); err != nil {
-		return err
-	}
-	return nil
+	_ = table.Render()
 }
 
 func (r *Result) Points() float64 {

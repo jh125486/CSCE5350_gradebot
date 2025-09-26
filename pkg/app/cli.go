@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -51,7 +53,7 @@ func (c *CommonProjectArgs) AfterApply(_ Context, buildID string) error {
 	return nil
 }
 
-// Wrap context to get around reflection issues in Bind()
+// Context wraps context to get around reflection issues in Bind()
 type Context struct {
 	context.Context
 }
@@ -68,8 +70,16 @@ func New(ctx context.Context, name string, id [32]byte) *kong.Context {
 
 func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
 	// Initialize storage
-	storageCfg := storage.NewConfig()
-	r2Storage, err := storage.NewR2Storage(ctx, storageCfg)
+	usePathStyle, _ := strconv.ParseBool(os.Getenv("USE_PATH_STYLE"))
+	cfg := storage.NewConfig(
+		os.Getenv("R2_ENDPOINT"),
+		os.Getenv("AWS_REGION"),
+		os.Getenv("R2_BUCKET"),
+		os.Getenv("AWS_ACCESS_KEY_ID"),
+		os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		usePathStyle,
+	)
+	r2, err := storage.NewR2Storage(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
@@ -80,32 +90,26 @@ func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
 		OpenAIClient: openai.NewClient(cmd.OpenAIKey, &http.Client{
 			Timeout: 35 * time.Second, // Slightly longer than the API timeout
 		}),
-		Storage: r2Storage,
+		Storage: r2,
 	})
 }
 
 func (cmd *Project1Cmd) Run(ctx Context) error {
 	return client.ExecuteProject1(ctx, client.Config{
-		ServerURL: cmd.ServerURL,
-		Dir:       cmd.Dir,
-		RunCmd:    cmd.RunCmd,
-		Client:    cmd.client,
-		RubricClient: protoconnect.NewRubricServiceClient(
-			cmd.client,
-			cmd.ServerURL,
-		),
+		ServerURL:     cmd.ServerURL,
+		Dir:           cmd.Dir,
+		RunCmd:        cmd.RunCmd,
+		QualityClient: protoconnect.NewQualityServiceClient(cmd.client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(cmd.client, cmd.ServerURL),
 	})
 }
 
 func (cmd *Project2Cmd) Run(ctx Context) error {
 	return client.ExecuteProject2(ctx, client.Config{
-		ServerURL: cmd.ServerURL,
-		Dir:       cmd.Dir,
-		RunCmd:    cmd.RunCmd,
-		Client:    cmd.client,
-		RubricClient: protoconnect.NewRubricServiceClient(
-			cmd.client,
-			cmd.ServerURL,
-		),
+		ServerURL:     cmd.ServerURL,
+		Dir:           cmd.Dir,
+		RunCmd:        cmd.RunCmd,
+		QualityClient: protoconnect.NewQualityServiceClient(cmd.client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(cmd.client, cmd.ServerURL),
 	})
 }

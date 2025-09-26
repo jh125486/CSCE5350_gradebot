@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
 // mockReviewer implements the openai.Reviewer interface for tests.
@@ -65,10 +68,6 @@ func (m *mockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, e
 	results := make(map[string]*pb.Result)
 	maps.Copy(results, m.results)
 	return results, nil
-}
-
-func (m *mockStorage) Close() error {
-	return nil
 }
 
 // mockConnectRequest wraps a connect request with mock peer info for testing
@@ -277,7 +276,7 @@ func TestGetClientIP(t *testing.T) {
 	}
 }
 
-func TestGetGeoLocation(t *testing.T) {
+func TestGetGeoLocation_WithMockClient(t *testing.T) {
 	tests := []struct {
 		name     string
 		ip       string
@@ -303,24 +302,193 @@ func TestGetGeoLocation(t *testing.T) {
 			ip:       "::1",
 			expected: localUnknown,
 		},
-		{
-			name:     "ValidIP",
-			ip:       "8.8.8.8",
-			expected: "Mountain View, California, United States", // Real geo data for 8.8.8.8
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getGeoLocation(tt.ip)
+			// Use mock client that never makes real HTTP calls
+			client := &GeoLocationClient{
+				Client: &http.Client{
+					Transport: &mockRoundTripper{},
+				},
+			}
+			result := client.Do(tt.ip)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
+func TestGeoLocationClient(t *testing.T) {
+	// Test basic functionality with mock HTTP responses - all in memory
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		expected   string
+	}{
+		{
+			name:       "APIError404",
+			statusCode: http.StatusNotFound,
+			body:       "",
+			expected:   unknownLocation,
+		},
+		{
+			name:       "APIError500",
+			statusCode: http.StatusInternalServerError,
+			body:       "",
+			expected:   unknownLocation,
+		},
+		{
+			name:       "InvalidJSON",
+			statusCode: http.StatusOK,
+			body:       "invalid json",
+			expected:   unknownLocation,
+		},
+		{
+			name:       "ValidResponse",
+			statusCode: http.StatusOK,
+			body:       `{"city": "Test City", "region": "Test Region", "country_name": "Test Country"}`,
+			expected:   "Test City, Test Region, Test Country",
+		},
+		{
+			name:       "PartialResponse",
+			statusCode: http.StatusOK,
+			body:       `{"city": "Test City", "country_name": "Test Country"}`,
+			expected:   "Test City, Test Country",
+		},
+		{
+			name:       "OnlyCountry",
+			statusCode: http.StatusOK,
+			body:       `{"country_name": "Test Country"}`,
+			expected:   "Test Country",
+		},
+		{
+			name:       "OnlyCity",
+			statusCode: http.StatusOK,
+			body:       `{"city": "Test City"}`,
+			expected:   "Test City",
+		},
+		{
+			name:       "OnlyRegion",
+			statusCode: http.StatusOK,
+			body:       `{"region": "Test Region"}`,
+			expected:   "Test Region",
+		},
+		{
+			name:       "EmptyResponse",
+			statusCode: http.StatusOK,
+			body:       `{}`,
+			expected:   unknownLocation,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a GeoLocationClient with mock transport - all in memory
+			client := &GeoLocationClient{
+				Client: &http.Client{
+					Transport: &mockRoundTripper{
+						response: &http.Response{
+							StatusCode: tt.statusCode,
+							Status:     http.StatusText(tt.statusCode),
+							Header:     make(http.Header),
+							Body:       io.NopCloser(strings.NewReader(tt.body)),
+						},
+					},
+				},
+			}
+
+			// Test with a fake IP - completely mocked, no real HTTP calls
+			result := client.Do("1.2.3.4")
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGeoLocationClient_LocalIPs(t *testing.T) {
+	client := &GeoLocationClient{
+		Client: &http.Client{},
+	}
+
+	tests := []struct {
+		name     string
+		ip       string
+		expected string
+	}{
+		{
+			name:     "EmptyIP",
+			ip:       "",
+			expected: localUnknown,
+		},
+		{
+			name:     "UnknownIP",
+			ip:       unknownIP,
+			expected: localUnknown,
+		},
+		{
+			name:     "LocalhostIPv4",
+			ip:       "127.0.0.1",
+			expected: localUnknown,
+		},
+		{
+			name:     "LocalhostIPv6",
+			ip:       "::1",
+			expected: localUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := client.Do(tt.ip)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// mockRoundTripper returns a pre-configured HTTP response without any real HTTP calls
+type mockRoundTripper struct {
+	response *http.Response
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// If no response is configured, return a default successful geo location response
+	if m.response == nil {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     http.StatusText(http.StatusOK),
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"city": "Test City", "region": "Test Region", "country_name": "Test Country"}`)),
+			Request:    req,
+		}, nil
+	}
+
+	// Set the request on the response and return it
+	m.response.Request = req
+	return m.response, nil
+}
+
+func TestGeoLocationClient_RequestError(t *testing.T) {
+	// Test when the HTTP request itself fails
+	client := &GeoLocationClient{
+		Client: &http.Client{
+			Transport: &errorRoundTripper{},
+		},
+	}
+
+	result := client.Do("1.2.3.4")
+	assert.Equal(t, unknownLocation, result)
+}
+
+// errorRoundTripper always returns an error
+type errorRoundTripper struct{}
+
+func (e *errorRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("network error")
+}
+
 func TestUploadRubricResult(t *testing.T) {
 	mockStore := newMockStorage()
-	server := NewRubricServer(mockStore)
+	server := newMockRubricServer(mockStore)
 
 	tests := []struct {
 		name         string
@@ -620,6 +788,111 @@ func TestServeSubmissionsPage(t *testing.T) {
 			assert.Contains(t, body, "<!DOCTYPE html>")
 		})
 	}
+}
+
+func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name               string
+		storageError       error
+		expectedStatusCode int
+		expectedContent    string
+	}{
+		{
+			name:               "StorageListError",
+			storageError:       fmt.Errorf("storage connection failed"),
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedContent:    "Internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a custom mock storage that returns an error for ListResults
+			mockStore := &errorMockStorage{
+				listResultsErr: tt.storageError,
+			}
+			server := newMockRubricServer(mockStore)
+
+			// Create a test request
+			req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
+			rr := httptest.NewRecorder()
+
+			// Call the handler
+			serveSubmissionsPage(rr, req, server)
+
+			// Check status code
+			assert.Equal(t, tt.expectedStatusCode, rr.Code)
+
+			// Check response body contains error message
+			body := rr.Body.String()
+			assert.Contains(t, body, tt.expectedContent)
+		})
+	}
+}
+
+// errorMockStorage is a mock storage that can be configured to return errors
+type errorMockStorage struct {
+	mockStorage
+	listResultsErr error
+	loadResultErr  error
+}
+
+func (m *errorMockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
+	if m.listResultsErr != nil {
+		return nil, m.listResultsErr
+	}
+	return m.mockStorage.ListResults(ctx)
+}
+
+func (m *errorMockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.Result, error) {
+	if m.loadResultErr != nil {
+		return nil, m.loadResultErr
+	}
+	return m.mockStorage.LoadResult(ctx, submissionID)
+}
+
+// newMockRubricServer creates a RubricServer with mock storage and geo client for testing
+func newMockRubricServer(stor storage.Storage) *RubricServer {
+	server := NewRubricServer(stor)
+	// Replace with mock geo client that never makes real HTTP calls
+	server.geoClient = &GeoLocationClient{
+		Client: &http.Client{
+			Transport: &mockRoundTripper{},
+		},
+	}
+	return server
+}
+
+func TestServeSubmissionsPage_TimestampParseError(t *testing.T) {
+	// Test case where timestamp parsing fails
+	mockStore := newMockStorage()
+	result := &pb.Result{
+		SubmissionId: "test-invalid-timestamp",
+		Timestamp:    "invalid-timestamp", // This will fail to parse
+		Rubric: []*pb.RubricItem{
+			{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+		},
+		IpAddress:   "192.168.1.100",
+		GeoLocation: "Test Location",
+	}
+	err := mockStore.SaveResult(context.Background(), "test-invalid-timestamp", result)
+	assert.NoError(t, err)
+
+	server := newMockRubricServer(mockStore)
+
+	// Create a test request
+	req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
+	rr := httptest.NewRecorder()
+
+	// Call the handler
+	serveSubmissionsPage(rr, req, server)
+
+	// Should still return OK status (handler uses fallback timestamp)
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// Should contain the submission data
+	body := rr.Body.String()
+	assert.Contains(t, body, "test-invalid-timestamp")
 }
 
 func TestServeSubmissionDetailPage(t *testing.T) {

@@ -5,9 +5,12 @@
 *.dylib
 *.test
 *.out
+.idea/
+.vscode/
 go.work
 go.work.sum
 .env
+coverage.html
 CSCE5350_gradebot
 gradebot
 

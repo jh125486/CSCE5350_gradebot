@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -195,9 +196,6 @@ func Start(ctx context.Context, cfg Config) error {
 
 // serveSubmissionsPage serves the HTML page for viewing submissions
 func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
-	// Set content type
-	w.Header().Set("Content-Type", "text/html")
-
 	ctx := r.Context()
 	results, err := rubricServer.storage.ListResults(ctx)
 	if err != nil {
@@ -205,6 +203,9 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set content type after we know we have valid data
+	w.Header().Set("Content-Type", "text/html")
 
 	// Prepare template data by accessing the storage
 	submissions := make([]SubmissionData, 0, len(results))
@@ -249,6 +250,9 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	avgScore := 0.0
 	if len(submissions) > 0 {
 		avgScore = totalScore / float64(len(submissions))
+		sort.Slice(submissions, func(i, j int) bool {
+			return submissions[i].SubmissionID < submissions[j].SubmissionID
+		})
 	}
 
 	data := struct {
