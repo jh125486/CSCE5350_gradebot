@@ -70,7 +70,7 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -coverprofile=coverage.txt ./...
         env:
           R2_ENDPOINT: http://localhost:4566
           R2_BUCKET: test-gradebot-bucket
@@ -79,7 +79,7 @@ jobs:
           AWS_REGION: us-east-1
           USE_PATH_STYLE: true
 
-      - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
