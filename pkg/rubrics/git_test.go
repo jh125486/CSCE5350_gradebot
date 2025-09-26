@@ -1,6 +1,7 @@
 package rubrics_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,6 +14,18 @@ import (
 
 	r "github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 )
+
+// failingChrootFS is a billy.Filesystem that fails on Chroot calls
+type failingChrootFS struct {
+	billy.Filesystem
+}
+
+func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
+	if path == ".git" {
+		return nil, errors.New("chroot failed")
+	}
+	return f.Filesystem.Chroot(path)
+}
 
 func TestEvaluateGit(t *testing.T) {
 	tests := []struct {
@@ -58,8 +71,24 @@ func TestEvaluateGit(t *testing.T) {
 			wantNoteContains: "",
 		},
 		{
-			name:             "OpenFails",
-			setupFS:          memfs.New, // No .git directory
+			name: "OpenFails",
+			setupFS: func() billy.Filesystem {
+				return &failingChrootFS{Filesystem: memfs.New()}
+			},
+			wantPoints:       0,
+			wantNoteContains: "failed to access .git directory",
+		},
+		{
+			name: "GitRepoOpenFails",
+			setupFS: func() billy.Filesystem {
+				fs := memfs.New()
+				// Create .git directory but with invalid/empty git structure
+				err := fs.MkdirAll(".git", 0755)
+				if err != nil {
+					t.Fatalf("mkdir .git: %v", err)
+				}
+				return fs
+			},
 			wantPoints:       0,
 			wantNoteContains: "failed to open git repo",
 		},

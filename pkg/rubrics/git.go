@@ -24,11 +24,10 @@ func EvaluateGit(repoFS billy.Filesystem) Evaluator {
 			}
 		}
 
-		// Attempt to use the repository's .git directory as storage
+		// Use the repository's .git directory as storage
 		dot, err := repoFS.Chroot(".git")
 		if err != nil {
-			// If chroot fails, fall back to using the repoFS directly as storage
-			dot = repoFS
+			return rubricItem(fmt.Sprintf("failed to access .git directory: %v", err), 0)
 		}
 
 		// NewStorage in go-git v5 requires an object cache argument.

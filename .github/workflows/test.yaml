@@ -1,8 +1,6 @@
 name: test
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -29,36 +27,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: '1.24'
-
-      - name: Install dependencies
-        run: go mod download
+          cache: true
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-
-      - name: Wait for LocalStack to be ready
-        run: |
-          echo "Waiting for LocalStack to be ready..."
-          max_attempts=30
-          attempt=1
-          while ! curl -f http://localhost:4566/_localstack/health | grep -q '"s3": "available"'; do
-            if [ $attempt -ge $max_attempts ]; then
-              echo "LocalStack failed to start after $max_attempts attempts"
-              exit 1
-            fi
-            echo "Attempt $attempt/$max_attempts..."
-            sleep 2
-            ((attempt++))
-          done
-          echo "LocalStack is ready!"
+      
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Create S3 test buckets
         run: |
@@ -68,7 +53,7 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
-
+        
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt ./...
         env:
@@ -78,11 +63,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
           USE_PATH_STYLE: true
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

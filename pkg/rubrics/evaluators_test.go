@@ -16,17 +16,19 @@ import (
 
 // kvStoreMock simulates a persistent key-value store and file creation for rubric tests
 type kvStoreMock struct {
-	store          map[string]string
-	tempDir        string
-	fileCreated    bool
-	firstRunErr    error
-	secondRunErr   error
-	runCallCount   int
-	doErr          error
-	doCallCount    int
-	killErr        error
-	clearOnRestart bool
-	failOnSecondDo bool
+	store            map[string]string
+	tempDir          string
+	fileCreated      bool
+	firstRunErr      error
+	secondRunErr     error
+	runCallCount     int
+	doErr            error
+	doCallCount      int
+	killErr          error
+	clearOnRestart   bool
+	failOnSecondDo   bool
+	returnEmptyOnGet bool
+	returnWrongOnGet bool
 }
 
 func newKVStoreMock(t *testing.T) *kvStoreMock {
@@ -59,12 +61,11 @@ func (m *kvStoreMock) Kill() error {
 
 func (m *kvStoreMock) Do(input string) (stdout, stderr []string, err error) {
 	m.doCallCount++
-	if m.doErr != nil {
-		if m.failOnSecondDo && m.doCallCount == 2 {
-			return nil, nil, m.doErr
-		} else if !m.failOnSecondDo && m.doCallCount == 1 {
-			return nil, nil, m.doErr
-		}
+	if m.doErr != nil && !m.failOnSecondDo {
+		return nil, nil, m.doErr
+	}
+	if m.failOnSecondDo && m.doCallCount == 2 {
+		return nil, nil, errors.New("second do call failed")
 	}
 	tokens := strings.Fields(input)
 	if len(tokens) < 2 {
@@ -87,6 +88,12 @@ func (m *kvStoreMock) Do(input string) (stdout, stderr []string, err error) {
 		}
 		return []string{""}, []string{}, nil
 	case "GET":
+		if m.returnEmptyOnGet {
+			return []string{}, []string{}, nil
+		}
+		if m.returnWrongOnGet {
+			return []string{"wrong-value-returned"}, []string{}, nil
+		}
 		val := m.store[tokens[1]]
 		return []string{val}, []string{}, nil
 	default:
@@ -276,6 +283,15 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "Execution failed",
+		},
+		{
+			name: "ReturnsLongUnexpectedOutput",
+			setupMock: func(m *kvStoreMock) {
+				// Mock will return long string for GET
+				m.store["doesnotexist"] = "this is a very long unexpected output string that should not be returned for nonexistent key"
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Expected empty or error response",
 		},
 	}
 
@@ -513,6 +529,30 @@ func TestEvaluateOverwriteKey(t *testing.T) {
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "Execution failed",
+		},
+		{
+			name: "SecondSetFails",
+			setupMock: func(m *kvStoreMock) {
+				m.failOnSecondDo = true // Second SET (do call) will fail
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Execution failed",
+		},
+		{
+			name: "GetReturnsEmptyOutput",
+			setupMock: func(m *kvStoreMock) {
+				m.returnEmptyOnGet = true
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET did not return any output",
+		},
+		{
+			name: "GetReturnsActuallyWrongValue",
+			setupMock: func(m *kvStoreMock) {
+				m.returnWrongOnGet = true
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET did not return the expected value",
 		},
 	}
 
