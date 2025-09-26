@@ -226,7 +226,7 @@ func TestExecuteProject1(t *testing.T) {
 				mockClient.qualityCalls = 0
 			}
 
-			err := client.ExecuteProject1(tt.args.ctx, tt.args.cfg)
+			err := client.ExecuteProject1(tt.args.ctx, &tt.args.cfg)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ExecuteProject1() error = %v, wantErr %v", err, tt.wantErr)
@@ -419,7 +419,7 @@ func TestAuthTransport_WithNilBase(t *testing.T) {
 	rt := client.NewAuthTransport("test-token", mockTransport)
 
 	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -443,7 +443,7 @@ func TestAuthTransport_BaseTransportError(t *testing.T) {
 	rt := client.NewAuthTransport("token", &failingRoundTripper{})
 
 	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
 
 	resp, err := httpClient.Do(req)
 	if resp != nil {
@@ -466,7 +466,7 @@ func TestAuthTransport_EmptyToken(t *testing.T) {
 	rt := client.NewAuthTransport("", mockTransport)
 
 	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -504,7 +504,7 @@ func TestAuthTransport_EmptyToken(t *testing.T) {
 	defer cancel()
 
 	// Should not fail the whole execution even if upload fails
-	err = client.ExecuteProject1(ctx, cfg)
+	err = client.ExecuteProject1(ctx, &cfg)
 	if err != nil {
 		t.Fatalf("ExecuteProject1 should not fail due to upload error: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestAuthTransport_HeaderOverwrite(t *testing.T) {
 	rt := client.NewAuthTransport("new-token", mockTransport)
 
 	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
 	req.Header.Set("Authorization", "Bearer old-token") // This should be overwritten
 
 	resp, err := httpClient.Do(req)
@@ -561,7 +561,7 @@ func TestAuthTransport_HeaderOverwrite(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err = client.ExecuteProject1(ctx, cfg)
+	err = client.ExecuteProject1(ctx, &cfg)
 	if err != nil {
 		t.Fatalf("ExecuteProject1 failed: %v", err)
 	}
@@ -593,18 +593,18 @@ func TestExecuteProject2_Simple(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := client.ExecuteProject2(ctx, cfg)
+	err := client.ExecuteProject2(ctx, &cfg)
 	// Don't assert specific behavior since it might be unimplemented
 	_ = err
 
 	// Test with nil clients
 	cfg.QualityClient = nil
 	cfg.RubricClient = nil
-	err = client.ExecuteProject2(ctx, cfg)
+	err = client.ExecuteProject2(ctx, &cfg)
 	_ = err
 
 	// Test with failing writer
 	cfg.Writer = &failingWriter{}
-	err = client.ExecuteProject2(ctx, cfg)
+	err = client.ExecuteProject2(ctx, &cfg)
 	_ = err
 }

@@ -150,6 +150,57 @@ func TestProgram_Run(t *testing.T) {
 			args:    []string{"run", "."},
 			wantErr: false, // returns nil
 		},
+		{
+			name: "ArgsOverrideRunCmd",
+			setup: func() (*Program, *MockCommandFactory, *MockCommander) {
+				mockCmd := new(MockCommander)
+				mockFactory := new(MockCommandFactory)
+				// The program is configured with "go build" but we pass "test" args
+				mockFactory.On("New", "go", []string{"test"}).Return(mockCmd)
+				mockCmd.On("SetDir", mock.Anything).Return()
+				mockCmd.On("SetStdin", mock.Anything).Return()
+				mockCmd.On("SetStdout", mock.Anything).Return()
+				mockCmd.On("SetStderr", mock.Anything).Return()
+				mockCmd.On("Start").Return(nil)
+				return NewProgram(".", "go build", mockFactory), mockFactory, mockCmd
+			},
+			args:    []string{"test"}, // These args should override the "build" part
+			wantErr: false,
+		},
+		{
+			name: "ArgsProvideCommandName",
+			setup: func() (*Program, *MockCommandFactory, *MockCommander) {
+				mockCmd := new(MockCommander)
+				mockFactory := new(MockCommandFactory)
+				// No RunCmd configured, args provide the command name
+				mockFactory.On("New", "python", []string{"-m", "pytest"}).Return(mockCmd)
+				mockCmd.On("SetDir", mock.Anything).Return()
+				mockCmd.On("SetStdin", mock.Anything).Return()
+				mockCmd.On("SetStdout", mock.Anything).Return()
+				mockCmd.On("SetStderr", mock.Anything).Return()
+				mockCmd.On("Start").Return(nil)
+				return NewProgram(".", "", mockFactory), mockFactory, mockCmd // Empty RunCmd
+			},
+			args:    []string{"python", "-m", "pytest"},
+			wantErr: false,
+		},
+		{
+			name: "SingleArgAsCommand",
+			setup: func() (*Program, *MockCommandFactory, *MockCommander) {
+				mockCmd := new(MockCommander)
+				mockFactory := new(MockCommandFactory)
+				// Single arg becomes the command with no additional args
+				mockFactory.On("New", "ls", []string(nil)).Return(mockCmd) // Use nil instead of empty slice
+				mockCmd.On("SetDir", mock.Anything).Return()
+				mockCmd.On("SetStdin", mock.Anything).Return()
+				mockCmd.On("SetStdout", mock.Anything).Return()
+				mockCmd.On("SetStderr", mock.Anything).Return()
+				mockCmd.On("Start").Return(nil)
+				return NewProgram(".", "", mockFactory), mockFactory, mockCmd
+			},
+			args:    []string{"ls"},
+			wantErr: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -175,16 +226,29 @@ func TestProgram_Run(t *testing.T) {
 func TestProgram_Do(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		input string
+		name    string
+		input   string
+		setup   func() *Program
+		wantErr bool
 	}{
-		{name: "SimpleIn", input: "test input"},
+		{
+			name:  "SimpleIn",
+			input: "test input",
+			setup: func() *Program {
+				return NewProgram(".", "go", nil)
+			},
+			wantErr: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			prog := NewProgram(".", "go", nil)
+			prog := tc.setup()
 			outLines, errOutLines, err := prog.Do(tc.input)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
 			assert.NoError(t, err)
 			var buf bytes.Buffer
 			buf.WriteString(tc.input)

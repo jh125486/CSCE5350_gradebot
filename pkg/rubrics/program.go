@@ -117,7 +117,7 @@ func (p *Program) Run(args ...string) error {
 	return nil
 }
 
-func (p *Program) Do(in string) ([]string, []string, error) {
+func (p *Program) Do(in string) (stdout, stderr []string, err error) {
 	// Mirror input into buffer for test visibility
 	p.in.Reset()
 	p.in.WriteString(in)
@@ -133,14 +133,17 @@ func (p *Program) Do(in string) ([]string, []string, error) {
 	prevOutLen := p.out.Len()
 	prevErrLen := p.errOut.Len()
 
-	// Wait briefly for the program to produce output
-	// We poll for growth for up to ~750ms
-	deadline := time.Now().Add(750 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if p.out.Len() > prevOutLen || p.errOut.Len() > prevErrLen {
-			break
+	// Only poll if we have a running process, otherwise return immediately
+	if p.stdinW != nil {
+		// Wait briefly for the program to produce output
+		// We poll for growth for up to ~750ms
+		deadline := time.Now().Add(750 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if p.out.Len() > prevOutLen || p.errOut.Len() > prevErrLen {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 
 	outStr := p.out.String()

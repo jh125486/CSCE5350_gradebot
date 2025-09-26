@@ -24,9 +24,9 @@ type RubricServer struct {
 }
 
 // NewRubricServer creates a new RubricServer with persistent storage
-func NewRubricServer(storage storage.Storage) *RubricServer {
+func NewRubricServer(stor storage.Storage) *RubricServer {
 	return &RubricServer{
-		storage:   storage,
+		storage:   stor,
 		templates: NewTemplateManager(),
 		geoClient: &GeoLocationClient{
 			Client: &http.Client{},
@@ -101,7 +101,7 @@ func (c *GeoLocationClient) Do(ip string) string {
 	// Use ipapi.co for free geo location lookup
 	url := fmt.Sprintf("http://ipapi.co/%s/json/", ip)
 
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
 	if err != nil {
 		slog.Warn("Failed to create geo location request", "ip", ip, "error", err)
 		return unknownLocation

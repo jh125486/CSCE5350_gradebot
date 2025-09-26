@@ -2,10 +2,8 @@ package rubrics
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -18,13 +16,13 @@ import (
 )
 
 // EvaluateQuality implements the same behavior as the old gRPC client wrapper.
-func EvaluateQuality(client protoconnect.QualityServiceClient, instructions string) Evaluator {
-	return func(ctx context.Context, program ProgramRunner, _ RunBag) RubricItem {
-		return evaluateQualityImpl(ctx, client, program, instructions)
+func EvaluateQuality(client protoconnect.QualityServiceClient, sourceFS, configFS fs.FS, instructions string) Evaluator {
+	return func(ctx context.Context, _ ProgramRunner, _ RunBag) RubricItem {
+		return evaluateQualityImpl(ctx, client, sourceFS, configFS, instructions)
 	}
 }
 
-func evaluateQualityImpl(ctx context.Context, c protoconnect.QualityServiceClient, program ProgramRunner, instructions string) RubricItem {
+func evaluateQualityImpl(ctx context.Context, c protoconnect.QualityServiceClient, source, config fs.FS, instructions string) RubricItem {
 	itemRubric := func(msg string, awarded float64) RubricItem {
 		return RubricItem{
 			Name:    "Quality",
@@ -34,7 +32,7 @@ func evaluateQualityImpl(ctx context.Context, c protoconnect.QualityServiceClien
 		}
 	}
 
-	files, err := loadFiles(os.DirFS(program.Path()), configFS)
+	files, err := loadFiles(source, config)
 	if err != nil {
 		return itemRubric(fmt.Sprintf("Failed to prepare code for review: %v", err), 0)
 	}
@@ -51,9 +49,6 @@ func evaluateQualityImpl(ctx context.Context, c protoconnect.QualityServiceClien
 
 	return itemRubric(resp.Msg.Feedback, awarded)
 }
-
-//go:embed exclude.yaml
-var configFS embed.FS
 
 func loadFiles(source, configFS fs.FS) ([]*pb.File, error) {
 	config, err := loadFileFilterConfig(configFS)
@@ -76,7 +71,7 @@ func loadFiles(source, configFS fs.FS) ([]*pb.File, error) {
 			return nil
 		}
 
-		if !config.ShouldIncludeFile(path) {
+		if !config.shouldIncludeFile(path) {
 			return nil
 		}
 
@@ -124,8 +119,8 @@ type fileFilterConfig struct {
 	ExcludeDirectories []string `yaml:"exclude_directories"`
 }
 
-// ShouldIncludeFile determines if a file should be included based on the config
-func (c *fileFilterConfig) ShouldIncludeFile(path string) bool {
+// shouldIncludeFile determines if a file should be included based on the config
+func (c *fileFilterConfig) shouldIncludeFile(path string) bool {
 	// Check if it has an extension we want to include
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == "" {
@@ -133,7 +128,7 @@ func (c *fileFilterConfig) ShouldIncludeFile(path string) bool {
 	}
 
 	for _, includeExt := range c.IncludeExtensions {
-		if ext == strings.ToLower(includeExt) {
+		if strings.EqualFold(ext, includeExt) {
 			return true
 		}
 	}
@@ -142,8 +137,8 @@ func (c *fileFilterConfig) ShouldIncludeFile(path string) bool {
 }
 
 // loadFileFilterConfig loads the include/exclude configuration
-func loadFileFilterConfig(fileSystem fs.FS) (*fileFilterConfig, error) {
-	f, err := fileSystem.Open("exclude.yaml")
+func loadFileFilterConfig(configFS fs.FS) (*fileFilterConfig, error) {
+	f, err := configFS.Open("exclude.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read embedded config: %w", err)
 	}

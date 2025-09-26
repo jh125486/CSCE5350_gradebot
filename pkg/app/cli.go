@@ -95,7 +95,7 @@ func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
 }
 
 func (cmd *Project1Cmd) Run(ctx Context) error {
-	return client.ExecuteProject1(ctx, client.Config{
+	return client.ExecuteProject1(ctx, &client.Config{
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,
@@ -105,7 +105,7 @@ func (cmd *Project1Cmd) Run(ctx Context) error {
 }
 
 func (cmd *Project2Cmd) Run(ctx Context) error {
-	return client.ExecuteProject2(ctx, client.Config{
+	return client.ExecuteProject2(ctx, &client.Config{
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,

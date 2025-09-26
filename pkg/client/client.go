@@ -2,10 +2,12 @@ package client
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -15,6 +17,9 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 )
+
+//go:embed exclude.yaml
+var configFS embed.FS
 
 type Config struct {
 	ServerURL string
@@ -91,7 +96,7 @@ func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient,
 }
 
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
-func ExecuteProject1(ctx context.Context, cfg Config) error {
+func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	factory := &rubrics.ExecCommandFactory{Context: ctx}
 	program := rubrics.NewProgram(cfg.Dir, cfg.RunCmd, factory)
 	defer func() {
@@ -118,12 +123,14 @@ func ExecuteProject1(ctx context.Context, cfg Config) error {
 		rubrics.EvaluatePersistenceAfterRestart,
 	}
 	if cfg.QualityClient != nil {
-		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, instructionsFor("project1")))
+		sourceFS := os.DirFS(program.Path())
+		instructions := instructionsFor("project1")
+		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, sourceFS, configFS, instructions))
 	}
 	for _, item := range items {
 		evalCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
 		results.Rubric = append(results.Rubric, item(evalCtx, program, bag))
+		cancel()
 	}
 
 	// Print rubric table to configured writer (default to stdout)
@@ -142,7 +149,7 @@ func ExecuteProject1(ctx context.Context, cfg Config) error {
 }
 
 // Project2Cmd is the kong command for project2.
-func ExecuteProject2(_ context.Context, _ Config) error {
+func ExecuteProject2(_ context.Context, _ *Config) error {
 	// Implementation for executing project2
 	return nil
 }

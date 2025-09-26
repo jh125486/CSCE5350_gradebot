@@ -123,7 +123,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 			if tt.header != "" {
 				req.Header.Set("authorization", tt.header)
 			}
@@ -588,7 +588,7 @@ func TestRealIPMiddleware(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 			req.RemoteAddr = tt.requestIP
 			rr := httptest.NewRecorder()
 
@@ -628,7 +628,7 @@ func TestRequiresAuth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequest(http.MethodGet, tt.path, http.NoBody)
 			result := requiresAuth(req)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -670,7 +670,7 @@ func TestAuthRubricHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req := httptest.NewRequest(http.MethodPost, tt.path, http.NoBody)
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
@@ -766,7 +766,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			server := NewRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
+			req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -814,7 +814,7 @@ func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
 			server := newMockRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
+			req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -881,7 +881,7 @@ func TestServeSubmissionsPage_TimestampParseError(t *testing.T) {
 	server := newMockRubricServer(mockStore)
 
 	// Create a test request
-	req := httptest.NewRequest(http.MethodGet, "/submissions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	// Call the handler
@@ -987,7 +987,7 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 			server := NewRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, tt.urlPath, nil)
+			req := httptest.NewRequest(http.MethodGet, tt.urlPath, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
