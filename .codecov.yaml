@@ -1,0 +1,6 @@
+coverage:
+  ignore:
+    - "pkg/proto"
+    - "pkg/proto/**"
+    - "**/*.pb.go"
+    - "**/*.connect.go"
