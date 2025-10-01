@@ -44,19 +44,11 @@ jobs:
           version: latest
       
       - name: SonarQube Scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: Create S3 test buckets
-        run: |
-          # Install awslocal for easier LocalStack interaction
-          pip install awscli-local
-        env:
-          AWS_ACCESS_KEY_ID: test
-          AWS_SECRET_ACCESS_KEY: test
-          AWS_DEFAULT_REGION: us-east-1
-        
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt ./...
         env:
