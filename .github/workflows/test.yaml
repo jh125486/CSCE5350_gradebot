@@ -43,12 +43,6 @@ jobs:
         with:
           version: latest
       
-      - name: SonarQube Scan
-        if: github.actor != 'dependabot[bot]'
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt ./...
         env:
@@ -58,6 +52,12 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
           AWS_REGION: us-east-1
           USE_PATH_STYLE: true
+
+      - name: SonarQube Scan
+        if: github.actor != 'dependabot[bot]'
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
