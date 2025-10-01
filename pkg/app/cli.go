@@ -24,7 +24,6 @@ type (
 		Project1 Project1Cmd `cmd:"" help:"Execute project1 grading client"`
 		Project2 Project2Cmd `cmd:"" help:"Execute project2 grading client"`
 	}
-
 	ServerCmd struct {
 		Port      string `name:"port" default:"8080" help:"Port of the grading server"`
 		OpenAIKey string `name:"openai-key" help:"OpenAI API key" env:"OPENAI_API_KEY"`
@@ -36,20 +35,21 @@ type (
 		CommonProjectArgs
 	}
 	CommonProjectArgs struct {
-		ServerURL string `name:"server-url" default:"https://gradebot-unt-fab5dc5c.koyeb.app" help:"URL of the grading server"`
-		Dir       string `name:"dir" help:"Path to your project directory" required:""`
-		RunCmd    string `name:"run" help:"Command to run your program" required:""`
+		ServerURL string         `name:"server-url" default:"https://gradebot-unt-fab5dc5c.koyeb.app" help:"URL of the grading server"`
+		Dir       client.WorkDir `name:"dir" help:"Path to your project directory (must exist and be accessible)" required:"" default:"."`
+		RunCmd    string         `name:"run" help:"Command to run your program" required:""`
 
-		client *http.Client
+		Client *http.Client `kong:"-"`
 	}
 )
 
+// AfterApply is a Kong hook that initializes the HTTP client with the build ID.
 func (c *CommonProjectArgs) AfterApply(_ Context, buildID string) error {
 	httpClient := &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: client.NewAuthTransport(buildID, http.DefaultTransport),
 	}
-	c.client = httpClient
+	c.Client = httpClient
 	return nil
 }
 
@@ -99,8 +99,8 @@ func (cmd *Project1Cmd) Run(ctx Context) error {
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,
-		QualityClient: protoconnect.NewQualityServiceClient(cmd.client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(cmd.client, cmd.ServerURL),
+		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
 	})
 }
 
@@ -109,7 +109,7 @@ func (cmd *Project2Cmd) Run(ctx Context) error {
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,
-		QualityClient: protoconnect.NewQualityServiceClient(cmd.client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(cmd.client, cmd.ServerURL),
+		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
 	})
 }

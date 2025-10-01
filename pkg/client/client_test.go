@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,118 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 )
 
+func TestWorkDirValidate(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name          string
+		setup         func(t *testing.T) (string, func())
+		wantErr       bool
+		errContains   string
+		skipOnWindows bool
+	}
+
+	cases := []testCase{
+		{
+			name: "empty path",
+			setup: func(t *testing.T) (string, func()) {
+				return "", nil
+			},
+			wantErr:     true,
+			errContains: "not specified",
+		},
+		{
+			name: "nonexistent path",
+			setup: func(t *testing.T) (string, func()) {
+				missing := filepath.Join(t.TempDir(), "does-not-exist")
+				return missing, nil
+			},
+			wantErr:     true,
+			errContains: "no such file or directory",
+		},
+		{
+			name: "not a directory",
+			setup: func(t *testing.T) (string, func()) {
+				dir := t.TempDir()
+				file, err := os.CreateTemp(dir, "file")
+				if err != nil {
+					t.Fatalf("CreateTemp: %v", err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatalf("Close: %v", err)
+				}
+				return file.Name(), func() { _ = os.Remove(file.Name()) }
+			},
+			wantErr:     true,
+			errContains: "not a directory",
+		},
+		{
+			name: "open failure",
+			setup: func(t *testing.T) (string, func()) {
+				base := t.TempDir()
+				restricted := filepath.Join(base, "restricted")
+				if err := os.Mkdir(restricted, 0o700); err != nil {
+					t.Fatalf("Mkdir: %v", err)
+				}
+				if err := os.Chmod(restricted, 0o100); err != nil {
+					t.Fatalf("Chmod: %v", err)
+				}
+				return restricted, func() { _ = os.Chmod(restricted, 0o700) }
+			},
+			wantErr:       true,
+			errContains:   "open",
+			skipOnWindows: true,
+		},
+		{
+			name: "success",
+			setup: func(t *testing.T) (string, func()) {
+				dir := t.TempDir()
+				return dir, nil
+			},
+		},
+		{
+			name: "success with contents",
+			setup: func(t *testing.T) (string, func()) {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "file"), []byte("data"), 0o600); err != nil {
+					t.Fatalf("WriteFile: %v", err)
+				}
+				return dir, nil
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tc.skipOnWindows && runtime.GOOS == "windows" {
+				t.Skip("directory permission semantics differ on Windows")
+			}
+
+			path, cleanup := tc.setup(t)
+			if cleanup != nil {
+				t.Cleanup(cleanup)
+			}
+
+			err := client.WorkDir(path).Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("expected error containing %q, got %v", tc.errContains, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("expected success, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestExecuteProject1(t *testing.T) {
 	t.Parallel()
 	type args struct {
@@ -31,12 +145,13 @@ func TestExecuteProject1(t *testing.T) {
 		cfg client.Config
 	}
 	tests := []struct {
-		name            string
-		args            args
-		setupDir        func(t *testing.T) string // Function to create test directory
-		wantErr         bool
-		wantUploadCalls int
-		checkOutput     func(t *testing.T, output string)
+		name             string
+		args             args
+		setupDir         func(t *testing.T) string // Function to create test directory
+		wantErr          bool
+		wantUploadCalls  int
+		wantQualityCalls int
+		checkOutput      func(t *testing.T, output string)
 	}{
 		{
 			name: "nonexistent_directory",
@@ -44,20 +159,24 @@ func TestExecuteProject1(t *testing.T) {
 				ctx: context.Background(),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
-					Dir:           "/tmp/nonexistent",
+					Dir:           "",
 					RunCmd:        "",
-					QualityClient: nil,
-					RubricClient:  nil,
+					QualityClient: &mockQualityServiceClient{},
+					RubricClient:  &mockRubricServiceClient{},
 					Writer:        &bytes.Buffer{},
 				},
 			},
 			setupDir: func(t *testing.T) string {
-				return "/tmp/nonexistent" // Directory that doesn't exist
+				return filepath.Join(t.TempDir(), "nonexistent")
 			},
-			wantErr:         false, // Should not error even if evaluations fail
-			wantUploadCalls: 0,
+			wantErr:          false, // Directory validation now happens at CLI level
+			wantUploadCalls:  1,     // Should still upload results
+			wantQualityCalls: 0,     // Quality service won't be called for nonexistent directory
 			checkOutput: func(t *testing.T, output string) {
-				// No output check needed since this is just a panic test
+				// Output should still be generated, but Git evaluation will fail
+				if !strings.Contains(output, "Git") {
+					t.Errorf("expected output to contain Git rubric item")
+				}
 			},
 		},
 		{
@@ -73,9 +192,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:        &bytes.Buffer{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false,
-			wantUploadCalls: 0,
+			setupDir:         createTestGitRepo,
+			wantErr:          false,
+			wantUploadCalls:  0,
+			wantQualityCalls: 0,
 			checkOutput: func(t *testing.T, output string) {
 				if !strings.Contains(output, "Git Repository") {
 					t.Error("expected Git Repository evaluation in output")
@@ -95,9 +215,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:        &bytes.Buffer{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false,
-			wantUploadCalls: 1,
+			setupDir:         createTestGitRepo,
+			wantErr:          false,
+			wantUploadCalls:  1,
+			wantQualityCalls: 0,
 			checkOutput: func(t *testing.T, output string) {
 				if !strings.Contains(output, "Git Repository") {
 					t.Error("expected Git Repository evaluation in output")
@@ -117,9 +238,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:        &bytes.Buffer{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false, // Should not fail execution even if upload fails
-			wantUploadCalls: 1,
+			setupDir:         createTestGitRepo,
+			wantErr:          false, // Should not fail execution even if upload fails
+			wantUploadCalls:  1,
+			wantQualityCalls: 0,
 			checkOutput: func(t *testing.T, output string) {
 				if !strings.Contains(output, "Git Repository") {
 					t.Error("expected Git Repository evaluation in output")
@@ -139,9 +261,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:        &failingWriter{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false, // Render doesn't propagate writer errors (tablewriter library limitation)
-			wantUploadCalls: 0,
+			setupDir:         createTestGitRepo,
+			wantErr:          false, // Render doesn't propagate writer errors (tablewriter library limitation)
+			wantUploadCalls:  0,
+			wantQualityCalls: 0,
 			checkOutput: func(t *testing.T, output string) {
 				// No output check needed - test verifies no panic with failing writer
 			},
@@ -162,9 +285,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:       &bytes.Buffer{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false,
-			wantUploadCalls: 1,
+			setupDir:         createTestGitRepo,
+			wantErr:          false,
+			wantUploadCalls:  1,
+			wantQualityCalls: 1,
 			checkOutput: func(t *testing.T, output string) {
 				if !strings.Contains(output, "Git Repository") {
 					t.Error("expected Git Repository evaluation in output")
@@ -189,9 +313,10 @@ func TestExecuteProject1(t *testing.T) {
 					Writer:       &bytes.Buffer{},
 				},
 			},
-			setupDir:        createTestGitRepo,
-			wantErr:         false, // Quality errors shouldn't fail the whole execution
-			wantUploadCalls: 0,
+			setupDir:         createTestGitRepo,
+			wantErr:          false, // Quality errors shouldn't fail the whole execution
+			wantUploadCalls:  0,
+			wantQualityCalls: 1,
 			checkOutput: func(t *testing.T, output string) {
 				if !strings.Contains(output, "Git Repository") {
 					t.Error("expected Git Repository evaluation in output")
@@ -209,7 +334,7 @@ func TestExecuteProject1(t *testing.T) {
 			t.Parallel()
 
 			// Update the directory in the config
-			tt.args.cfg.Dir = tt.setupDir(t)
+			tt.args.cfg.Dir = client.WorkDir(tt.setupDir(t))
 
 			// Set up timeout context
 			ctx, cancel := context.WithTimeout(tt.args.ctx, 5*time.Second)
@@ -237,6 +362,12 @@ func TestExecuteProject1(t *testing.T) {
 			if mockClient, ok := tt.args.cfg.RubricClient.(*mockRubricServiceClient); ok {
 				if mockClient.uploadCalls != tt.wantUploadCalls {
 					t.Errorf("expected %d upload calls, got %d", tt.wantUploadCalls, mockClient.uploadCalls)
+				}
+			}
+
+			if mockClient, ok := tt.args.cfg.QualityClient.(*mockQualityServiceClient); ok {
+				if mockClient.qualityCalls != tt.wantQualityCalls {
+					t.Errorf("expected %d quality calls, got %d", tt.wantQualityCalls, mockClient.qualityCalls)
 				}
 			}
 
@@ -494,7 +625,7 @@ func TestAuthTransport_EmptyToken(t *testing.T) {
 
 	cfg := client.Config{
 		ServerURL:    "http://example.com",
-		Dir:          dir,
+		Dir:          client.WorkDir(dir),
 		RunCmd:       "",
 		RubricClient: mockRubricClient,
 		Writer:       &bytes.Buffer{},
@@ -551,7 +682,7 @@ func TestAuthTransport_HeaderOverwrite(t *testing.T) {
 
 	cfg := client.Config{
 		ServerURL:     "http://example.com",
-		Dir:           dir,
+		Dir:           client.WorkDir(dir),
 		RunCmd:        "",
 		QualityClient: nil, // Avoid hanging on quality client
 		RubricClient:  mockRubricClient,

@@ -20,6 +20,7 @@ type failingChrootFS struct {
 	billy.Filesystem
 }
 
+//nolint:ireturn // This is normal for billy.Filesystem implementations
 func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
 	if path == ".git" {
 		return nil, errors.New("chroot failed")
@@ -83,7 +84,7 @@ func TestEvaluateGit(t *testing.T) {
 			setupFS: func() billy.Filesystem {
 				fs := memfs.New()
 				// Create .git directory but with invalid/empty git structure
-				err := fs.MkdirAll(".git", 0755)
+				err := fs.MkdirAll(".git", 0o755)
 				if err != nil {
 					t.Fatalf("mkdir .git: %v", err)
 				}

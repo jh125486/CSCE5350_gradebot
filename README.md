@@ -46,11 +46,13 @@ The gradebot consists of:
    nano .env  # or your preferred editor
    ```
 
-3. **Install dependencies and build**:
+3. **Initialize development environment**:
    ```bash
    go mod tidy
+   make init    # Installs git hooks
    make build
    ```
+   The `make init` command installs a pre-push hook that runs tests and linting before allowing a push.
 
 ### Testing Locally
 
@@ -85,6 +87,29 @@ Optional variables:
 - `R2_BUCKET`: Custom bucket name (defaults to "gradebot-storage")
 - `AWS_REGION`: AWS region (defaults to "auto")
 - `USE_PATH_STYLE`: Use path-style S3 URLs (for LocalStack testing)
+
+### Development Workflow
+
+**Run tests**:
+```bash
+make test          # Run all tests with race detection
+make test-verbose  # Run tests with verbose output
+```
+
+**Run linting**:
+```bash
+make lint          # Run golangci-lint and security checks
+```
+
+**Git Hooks**:
+The pre-push hook automatically runs before each `git push` to ensure:
+- All tests pass (including race detection)
+- Code passes all linting checks
+
+To bypass the hook (not recommended):
+```bash
+git push --no-verify
+```
 
 ## Usage
 

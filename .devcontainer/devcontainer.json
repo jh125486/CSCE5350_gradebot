@@ -6,7 +6,19 @@
   "service": "app",
   "workspaceFolder": "/workspaces/CSCE5350_gradebot",
   "shutdownAction": "stopCompose",
-
+  // Features to add to the dev container. More info: https://containers.dev/features.
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.24"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "17"
+    }
+  },
   // Configure tool-specific properties.
   "customizations": {
     // Configure properties specific to VS Code.
@@ -15,7 +27,8 @@
       "extensions": [
         "golang.Go",
         "ms-vscode.vscode-json",
-        "ms-vscode.vscode-yaml"
+        "ms-vscode.vscode-yaml",
+        "SonarSource.sonarlint-vscode"
       ],
       "settings": {
         "go.toolsManagement.checkForUpdates": "local",
@@ -36,7 +49,9 @@
         "go.formatOnSave": true,
         "go.lintOnSave": "package",
         "go.buildOnSave": "package",
-        "go.testFlags": ["-v"],
+        "go.testFlags": [
+          "-v"
+        ],
         "go.testTimeout": "30s",
         "go.addTags": {
           "tags": "json",
@@ -47,21 +62,18 @@
           "tags": "json",
           "options": "",
           "promptForTags": false
-        }
+        },
+        "sonarlint.ls.javaHome": "${env:JAVA_HOME}",
+        "sonarlint.ls.javaDownloadEnabled": false,
+        "sonarlint.disableTelemetry": true
       }
     }
   },
-
-  // Features to add to the dev container. More info: https://containers.dev/features.
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.24"
-    }
-  },
-
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
-  "forwardPorts": [8080, 4566],
+  "forwardPorts": [
+    8080,
+    4566
+  ],
   "portsAttributes": {
     "8080": {
       "label": "Gradebot Server",
@@ -72,18 +84,14 @@
       "onAutoForward": "notify"
     }
   },
-
   // Mount SSH agent socket for Git authentication
   "mounts": [
     "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind,consistency=cached"
   ],
-
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "go mod download && go mod tidy",
-
+  "postCreateCommand": "go mod download && go mod tidy && make init",
   // Comment out to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
   "remoteUser": "vscode",
-
   // Configure environment variables
   "containerEnv": {
     "R2_ENDPOINT": "http://localstack:4566",

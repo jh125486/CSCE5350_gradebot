@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -21,11 +22,74 @@ import (
 //go:embed exclude.yaml
 var configFS embed.FS
 
+// WorkDir is a validated project directory path
+type WorkDir string
+
+// Validate implements Kong's Validatable interface for WorkDir validation
+func (w WorkDir) Validate() error {
+	path := string(w)
+	if path == "" {
+		return fmt.Errorf("work directory not specified")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return &DirectoryError{Err: err}
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("work directory %q is not a directory", path)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return &DirectoryError{Err: err}
+	}
+	defer f.Close()
+
+	if _, err := f.Readdirnames(1); err != nil && err != io.EOF {
+		return &DirectoryError{Err: err}
+	}
+
+	return nil
+}
+
+// String returns the string representation of WorkDir
+func (w WorkDir) String() string {
+	return string(w)
+}
+
+// DirectoryError represents an error related to directory access
+type DirectoryError struct {
+	Err error
+}
+
+func (e *DirectoryError) Error() string {
+	return fmt.Sprintf("%v\n%s", e.Err, e.getPermissionHelp())
+}
+
+func (e *DirectoryError) Unwrap() error {
+	return e.Err
+}
+
+func (e *DirectoryError) getPermissionHelp() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "macOS help: System Preferences → Security & Privacy → Privacy → Full Disk Access\nOr try: chmod 755 /path/to/directory"
+	case "windows":
+		return "Windows help: Right-click folder → Properties → Security → Edit permissions\nOr run as Administrator"
+	case "linux":
+		return "Linux help: chmod 755 /path/to/directory\nOr check file ownership with: ls -la"
+	default:
+		return "Check directory permissions and ownership"
+	}
+}
+
+// Config represents configuration for the grading client
 type Config struct {
 	ServerURL string
 
 	// Execution specific fields
-	Dir    string
+	Dir    WorkDir
 	RunCmd string
 
 	// Connect client for the QualityService
@@ -98,7 +162,7 @@ func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient,
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
 func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	factory := &rubrics.ExecCommandFactory{Context: ctx}
-	program := rubrics.NewProgram(cfg.Dir, cfg.RunCmd, factory)
+	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, factory)
 	defer func() {
 		if err := program.Kill(); err != nil {
 			slog.Error("failed to kill program", slog.Any("error", err))
@@ -115,7 +179,7 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	}
 
 	items := []rubrics.Evaluator{
-		rubrics.EvaluateGit(osfs.New(cfg.Dir)),
+		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
 		rubrics.EvaluateOverwriteKey,
@@ -148,7 +212,7 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// Project2Cmd is the kong command for project2.
+// ExecuteProject2 executes the project2 grading flow using a runtime config.
 func ExecuteProject2(_ context.Context, _ *Config) error {
 	// Implementation for executing project2
 	return nil

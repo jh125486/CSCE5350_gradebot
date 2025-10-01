@@ -10,6 +10,12 @@ help:
 	@echo "Available targets:"
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
+## init: Initialize development environment (install git hooks)
+init:
+	@echo "Initializing development environment..."
+	@bash .githooks/install-hooks.sh
+	@echo "Development environment initialized ✓"
+
 build:
 	@echo "Building $(BINARY_NAME)"
 	@mkdir -p $(BUILD_DIR)

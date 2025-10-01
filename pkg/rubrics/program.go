@@ -9,8 +9,37 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// SafeBuffer is a thread-safe bytes.Buffer wrapper that uses a mutex to protect
+// concurrent reads and writes. It is safe to use from multiple goroutines.
+type SafeBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+// Write implements io.Writer with mutex protection.
+func (sb *SafeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+// Len returns the number of bytes in the buffer.
+func (sb *SafeBuffer) Len() int {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Len()
+}
+
+// String returns the contents of the buffer as a string.
+func (sb *SafeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
 
 // Program implements the ProgramRunner interface using a CommandFactory
 // to allow for testable command execution.
@@ -21,9 +50,12 @@ type Program struct {
 
 	cmd    Commander
 	in     bytes.Buffer
-	out    bytes.Buffer
-	errOut bytes.Buffer
+	out    SafeBuffer
+	errOut SafeBuffer
 	stdinW io.WriteCloser
+
+	// For testing: allow injection of stdin writer
+	stdinWriterFactory func() (io.Reader, io.WriteCloser)
 }
 
 // NewProgram creates a new Program instance.
@@ -37,13 +69,24 @@ func NewProgram(workDir, runCmd string, factory CommandFactory) *Program {
 		WorkDir:    workDir,
 		RunCmd:     strings.Fields(runCmd),
 		cmdFactory: factory,
+		// Default stdin writer factory uses io.Pipe
+		stdinWriterFactory: func() (io.Reader, io.WriteCloser) {
+			return io.Pipe()
+		},
 	}
+}
+
+// SetStdinWriterFactory allows injection of a custom stdin writer factory for testing
+func (p *Program) SetStdinWriterFactory(factory func() (io.Reader, io.WriteCloser)) {
+	p.stdinWriterFactory = factory
 }
 
 // Update ProgramRunner interface to match new Do signature in types.go
 
+// Path returns the working directory path
 func (p *Program) Path() string { return p.WorkDir }
 
+// Run starts the program with the given arguments
 func (p *Program) Run(args ...string) error {
 	d, err := os.Getwd()
 	if err != nil {
@@ -101,10 +144,11 @@ func (p *Program) Run(args ...string) error {
 	// Wire up the command and arguments
 	p.cmd = p.cmdFactory.New(cmdName, cmdArgs...)
 	p.cmd.SetDir(p.WorkDir)
-	// Use a pipe for stdin so we can stream interactive commands via Do().
-	stdinR, stdinW := io.Pipe()
+	// Use the injected stdin writer factory for testability
+	stdinR, stdinW := p.stdinWriterFactory()
 	p.stdinW = stdinW
 	p.cmd.SetStdin(stdinR)
+	// SafeBuffer provides thread-safe writes from command goroutines
 	p.cmd.SetStdout(&p.out)
 	p.cmd.SetStderr(&p.errOut)
 
@@ -117,6 +161,7 @@ func (p *Program) Run(args ...string) error {
 	return nil
 }
 
+// Do sends input to the running program and returns captured output
 func (p *Program) Do(in string) (stdout, stderr []string, err error) {
 	// Mirror input into buffer for test visibility
 	p.in.Reset()
@@ -139,7 +184,9 @@ func (p *Program) Do(in string) (stdout, stderr []string, err error) {
 		// We poll for growth for up to ~750ms
 		deadline := time.Now().Add(750 * time.Millisecond)
 		for time.Now().Before(deadline) {
-			if p.out.Len() > prevOutLen || p.errOut.Len() > prevErrLen {
+			outLen := p.out.Len()
+			errLen := p.errOut.Len()
+			if outLen > prevOutLen || errLen > prevErrLen {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -171,6 +218,7 @@ func (p *Program) Do(in string) (stdout, stderr []string, err error) {
 	return outLines, errLines, nil
 }
 
+// Kill terminates the running program process
 func (p *Program) Kill() error {
 	if p.cmd != nil {
 		return p.cmd.ProcessKill()
