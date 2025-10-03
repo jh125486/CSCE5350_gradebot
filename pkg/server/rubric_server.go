@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/bufbuild/connect-go"
 
@@ -94,18 +95,16 @@ type GeoLocationClient struct {
 
 // Do fetches geo location data for an IP address
 func (c *GeoLocationClient) Do(ip string) string {
-	if ip == "" || ip == unknownIP || ip == "127.0.0.1" || ip == "::1" {
+	if skipGeoLookup(ip) {
 		return localUnknown
 	}
 
-	// Use ipapi.co for free geo location lookup
-	url := fmt.Sprintf("http://ipapi.co/%s/json/", ip)
-
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
+	req, err := newGeoRequest(ip)
 	if err != nil {
 		slog.Warn("Failed to create geo location request", "ip", ip, "error", err)
 		return unknownLocation
 	}
+
 	resp, err := c.Client.Do(req)
 	if err != nil {
 		slog.Warn("Failed to fetch geo location", "ip", ip, "error", err)
@@ -118,41 +117,51 @@ func (c *GeoLocationClient) Do(ip string) string {
 		return unknownLocation
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	geo, err := decodeGeoLocation(resp.Body)
 	if err != nil {
-		slog.Warn("Failed to read geo location response", "ip", ip, "error", err)
-		return unknownLocation
-	}
-
-	var geo GeoLocation
-	if err := json.Unmarshal(body, &geo); err != nil {
 		slog.Warn("Failed to parse geo location response", "ip", ip, "error", err)
 		return unknownLocation
 	}
 
-	// Format the location
-	location := ""
-	if geo.City != "" {
-		location = geo.City
-	}
-	if geo.Region != "" {
-		if location != "" {
-			location += ", " + geo.Region
-		} else {
-			location = geo.Region
-		}
-	}
-	if geo.Country != "" {
-		if location != "" {
-			location += ", " + geo.Country
-		} else {
-			location = geo.Country
-		}
+	return formatLocation(geo)
+}
+
+func skipGeoLookup(ip string) bool {
+	return ip == "" || ip == unknownIP || ip == "127.0.0.1" || ip == "::1"
+}
+
+func newGeoRequest(ip string) (*http.Request, error) {
+	url := fmt.Sprintf("http://ipapi.co/%s/json/", ip)
+	return http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+}
+
+func decodeGeoLocation(body io.Reader) (GeoLocation, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return GeoLocation{}, err
 	}
 
-	if location == "" {
+	var geo GeoLocation
+	if err := json.Unmarshal(data, &geo); err != nil {
+		return GeoLocation{}, err
+	}
+
+	return geo, nil
+}
+
+func formatLocation(geo GeoLocation) string {
+	parts := appendNonEmpty(nil, geo.City, geo.Region, geo.Country)
+	if len(parts) == 0 {
 		return unknownLocation
 	}
+	return strings.Join(parts, ", ")
+}
 
-	return location
+func appendNonEmpty(parts []string, values ...string) []string {
+	for _, value := range values {
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return parts
 }
