@@ -2,7 +2,7 @@ module github.com/jh125486/CSCE5350_gradebot
 
 go 1.24.0
 
-require github.com/docker/docker v28.4.0+incompatible
+require github.com/docker/docker v28.5.0+incompatible
 
 require (
 	github.com/alecthomas/kong v1.12.1
@@ -20,7 +20,7 @@ require (
 	github.com/openai/openai-go/v2 v2.7.1
 	github.com/stretchr/testify v1.11.1
 	github.com/tomasen/realip v0.0.0-20180522021738-f0c99a92ddce
-	google.golang.org/protobuf v1.36.9
+	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v3 v3.0.1
 )
 
