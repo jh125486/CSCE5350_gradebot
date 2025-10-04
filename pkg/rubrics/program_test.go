@@ -307,7 +307,7 @@ func TestProgram_Path(t *testing.T) {
 		workDir string
 		runCmd  string
 	}{
-		{name: "SimplePath", workDir: "/tmp/workdir", runCmd: "go"},
+		{name: "SimplePath", workDir: "/tmp/workdirABC", runCmd: "go"},
 		{name: "EmptyRunCmd", workDir: "/home/user", runCmd: ""},
 		{name: "RelativePath", workDir: "./test", runCmd: "python"},
 	}

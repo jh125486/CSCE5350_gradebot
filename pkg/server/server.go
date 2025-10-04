@@ -29,6 +29,8 @@ const (
 	unknownIP           = "unknown"
 	unknownLocation     = "Unknown"
 	localUnknown        = "Local/Unknown"
+	contentTypeHeader   = "Content-Type"
+	templateExecErrMsg  = "Failed to execute template"
 )
 
 var (
@@ -44,38 +46,77 @@ type IPExtractable interface {
 
 // extractClientIP extracts client IP from any object that implements IPExtractable
 func extractClientIP(ctx context.Context, req IPExtractable) string {
-	// Method 1: Try to get from context (set by realIP middleware)
-	if realIP, ok := ctx.Value(realIPKey).(string); ok && realIP != "" && realIP != unknownIP {
-		return realIP
+	if ip := realIPFromContext(ctx); ip != "" {
+		return ip
 	}
 
-	// Method 2: Try to extract from HTTP headers in the Connect request
-	headers := req.Header()
-	if xff := headers.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP from comma-separated list
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			if ip := strings.TrimSpace(ips[0]); ip != "" && ip != unknownIP {
-				return ip
-			}
-		}
-	}
-	if xri := headers.Get("X-Real-IP"); xri != "" && xri != unknownIP {
-		return xri
-	}
-	if cfip := headers.Get("CF-Connecting-IP"); cfip != "" && cfip != unknownIP {
-		return cfip
+	if ip := headerIP(req.Header()); ip != "" {
+		return ip
 	}
 
-	// Method 3: Try peer info as fallback
-	peer := req.Peer()
-	if peer.Addr != "" {
-		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
-			return ip
-		}
-		return peer.Addr
+	if ip := peerIP(req.Peer()); ip != "" {
+		return ip
 	}
 
 	return unknownIP
+}
+
+func realIPFromContext(ctx context.Context) string {
+	realIP, ok := ctx.Value(realIPKey).(string)
+	if !ok {
+		return ""
+	}
+	if isUnknownIP(realIP) {
+		return ""
+	}
+	return realIP
+}
+
+func headerIP(headers http.Header) string {
+	for _, key := range []string{"X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"} {
+		value := headers.Get(key)
+		if value == "" {
+			continue
+		}
+
+		ip := value
+		if key == "X-Forwarded-For" {
+			ip = firstForwardedIP(value)
+		}
+
+		if !isUnknownIP(ip) {
+			return ip
+		}
+	}
+	return ""
+}
+
+func firstForwardedIP(value string) string {
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
+}
+
+func peerIP(peer connect.Peer) string {
+	if peer.Addr == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(peer.Addr); err == nil {
+		if !isUnknownIP(host) {
+			return host
+		}
+		return ""
+	}
+	if isUnknownIP(peer.Addr) {
+		return ""
+	}
+	return peer.Addr
+}
+
+func isUnknownIP(ip string) bool {
+	return ip == "" || ip == unknownIP
 }
 
 // TemplateManager manages HTML templates
@@ -163,7 +204,7 @@ func Start(ctx context.Context, cfg Config) error {
 
 	// Health check endpoint for Koyeb and monitoring
 	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(contentTypeHeader, "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"healthy","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`))
 	}))
@@ -205,7 +246,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	}
 
 	// Set content type after we know we have valid data
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set(contentTypeHeader, "text/html")
 
 	// Prepare template data by accessing the storage
 	submissions := make([]SubmissionData, 0, len(results))
@@ -271,8 +312,8 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 
 	// Execute template (already parsed at package initialization)
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
-		slog.Error("Failed to execute template", "error", err)
-		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
+		slog.Error(templateExecErrMsg, "error", err)
+		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
 }
@@ -280,7 +321,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 // serveSubmissionDetailPage serves the HTML page for a specific submission's details
 func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
 	// Set content type
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set(contentTypeHeader, "text/html")
 
 	// Extract submission ID from URL path
 	path := strings.TrimPrefix(r.URL.Path, "/submissions/")
@@ -351,8 +392,8 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 
 	if err := rubricServer.templates.submissionTmpl.Execute(w, data); err != nil {
-		slog.Error("Failed to execute template", "error", err)
-		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
+		slog.Error(templateExecErrMsg, "error", err)
+		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
 }
