@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,13 +25,17 @@ import (
 )
 
 const (
-	submissionsTmplFile = "submissions.go.tmpl"
-	submissionTmplFile  = "submission.go.tmpl"
-	unknownIP           = "unknown"
-	unknownLocation     = "Unknown"
-	localUnknown        = "Local/Unknown"
-	contentTypeHeader   = "Content-Type"
-	templateExecErrMsg  = "Failed to execute template"
+	submissionsTmplFile  = "submissions.go.tmpl"
+	submissionTmplFile   = "submission.go.tmpl"
+	unknownIP            = "unknown"
+	unknownLocation      = "Unknown"
+	localUnknown         = "Local/Unknown"
+	contentTypeHeader    = "Content-Type"
+	templateExecErrMsg   = "template execution error"
+	htmlContentType      = "text/html"
+	xForwardedForHeader  = "X-Forwarded-For"
+	xRealIPHeader        = "X-Real-IP"
+	cfConnectingIPHeader = "CF-Connecting-IP"
 )
 
 var (
@@ -46,90 +51,101 @@ type IPExtractable interface {
 
 // extractClientIP extracts client IP from any object that implements IPExtractable
 func extractClientIP(ctx context.Context, req IPExtractable) string {
-	if ip := realIPFromContext(ctx); ip != "" {
+	// Method 1: Try to get from context (set by realIP middleware)
+	if realIP, ok := ctx.Value(realIPKey).(string); ok && realIP != "" && realIP != unknownIP {
+		return realIP
+	}
+
+	// Method 2: Try to extract from HTTP headers
+	if ip := extractFromXForwardedFor(req); ip != unknownIP {
 		return ip
 	}
 
-	if ip := headerIP(req.Header()); ip != "" {
+	if ip := extractFromXRealIP(req); ip != unknownIP {
 		return ip
 	}
 
-	if ip := peerIP(req.Peer()); ip != "" {
+	if ip := extractFromCFConnectingIP(req); ip != unknownIP {
 		return ip
 	}
 
+	// Method 3: Try peer info as fallback
+	return extractFromPeer(req)
+}
+
+// extractFromXForwardedFor extracts IP from X-Forwarded-For header
+func extractFromXForwardedFor(req IPExtractable) string {
+	headers := req.Header()
+	if xff := headers.Get(xForwardedForHeader); xff != "" {
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			if ip := strings.TrimSpace(ips[0]); ip != "" && ip != unknownIP {
+				return ip
+			}
+		}
+	}
 	return unknownIP
 }
 
-func realIPFromContext(ctx context.Context) string {
-	realIP, ok := ctx.Value(realIPKey).(string)
-	if !ok {
-		return ""
+// extractFromXRealIP extracts IP from X-Real-IP header
+func extractFromXRealIP(req IPExtractable) string {
+	headers := req.Header()
+	if xri := headers.Get(xRealIPHeader); xri != "" && xri != unknownIP {
+		return xri
 	}
-	if isUnknownIP(realIP) {
-		return ""
-	}
-	return realIP
+	return unknownIP
 }
 
-func headerIP(headers http.Header) string {
-	for _, key := range []string{"X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"} {
-		value := headers.Get(key)
-		if value == "" {
-			continue
-		}
+// extractFromCFConnectingIP extracts IP from CF-Connecting-IP header
+func extractFromCFConnectingIP(req IPExtractable) string {
+	headers := req.Header()
+	if cfip := headers.Get(cfConnectingIPHeader); cfip != "" && cfip != unknownIP {
+		return cfip
+	}
+	return unknownIP
+}
 
-		ip := value
-		if key == "X-Forwarded-For" {
-			ip = firstForwardedIP(value)
-		}
-
-		if !isUnknownIP(ip) {
+// extractFromPeer extracts IP from peer address
+func extractFromPeer(req IPExtractable) string {
+	peer := req.Peer()
+	if peer.Addr != "" {
+		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
 			return ip
 		}
 	}
-	return ""
-}
-
-func firstForwardedIP(value string) string {
-	parts := strings.Split(value, ",")
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
-}
-
-func peerIP(peer connect.Peer) string {
-	if peer.Addr == "" {
-		return ""
-	}
-	if host, _, err := net.SplitHostPort(peer.Addr); err == nil {
-		if !isUnknownIP(host) {
-			return host
-		}
-		return ""
-	}
-	if isUnknownIP(peer.Addr) {
-		return ""
-	}
-	return peer.Addr
-}
-
-func isUnknownIP(ip string) bool {
-	return ip == "" || ip == unknownIP
+	return unknownIP
 }
 
 // TemplateManager manages HTML templates
 type TemplateManager struct {
-	submissionsTmpl *template.Template
-	submissionTmpl  *template.Template
+	submissionsTmpl  *template.Template
+	submissionTmpl   *template.Template
+	tableContentTmpl *template.Template
 }
 
 // NewTemplateManager creates a new template manager with loaded templates
 func NewTemplateManager() *TemplateManager {
+	funcMap := template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+		"ge":  func(a, b float64) bool { return a >= b },
+	}
+
 	return &TemplateManager{
-		submissionsTmpl: template.Must(template.New(submissionsTmplFile).ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile))),
-		submissionTmpl:  template.Must(template.New(submissionTmplFile).ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile))),
+		submissionsTmpl: template.Must(
+			template.New(submissionsTmplFile).
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile)),
+		),
+		submissionTmpl: template.Must(
+			template.New(submissionTmplFile).
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile)),
+		),
+		tableContentTmpl: template.Must(
+			template.New("table-content.go.tmpl").
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", "table-content.go.tmpl")),
+		),
 	}
 }
 
@@ -148,6 +164,17 @@ type RubricItemData struct {
 	Points  float64
 	Awarded float64
 	Note    string
+}
+
+type SubmissionsPageData struct {
+	TotalSubmissions int
+	HighScore        float64
+	Submissions      []SubmissionData
+	CurrentPage      int
+	TotalPages       int
+	PageSize         int
+	HasPrevPage      bool
+	HasNextPage      bool
 }
 
 // GradingServer represents a grading server
@@ -235,23 +262,10 @@ func Start(ctx context.Context, cfg Config) error {
 	}
 }
 
-// serveSubmissionsPage serves the HTML page for viewing submissions
-func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
-	ctx := r.Context()
-	results, err := rubricServer.storage.ListResults(ctx)
-	if err != nil {
-		slog.Error("Failed to list results from storage", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Set content type after we know we have valid data
-	w.Header().Set(contentTypeHeader, "text/html")
-
-	// Prepare template data by accessing the storage
-	submissions := make([]SubmissionData, 0, len(results))
-	var totalScore float64
-	var highScore float64
+// parseSubmissionsFromResults converts storage results to submission data
+func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
+	submissions = make([]SubmissionData, 0, len(results))
+	highScore = 0.0
 
 	for _, result := range results {
 		totalPoints := 0.0
@@ -270,7 +284,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 		if err != nil {
 			slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
-			timestamp = time.Now() // fallback
+			timestamp = time.Now()
 		}
 
 		submissions = append(submissions, SubmissionData{
@@ -282,35 +296,104 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 			IPAddress:     result.IpAddress,
 			GeoLocation:   result.GeoLocation,
 		})
-		totalScore += score
 		if score > highScore {
 			highScore = score
 		}
 	}
 
-	avgScore := 0.0
-	if len(submissions) > 0 {
-		avgScore = totalScore / float64(len(submissions))
-		sort.Slice(submissions, func(i, j int) bool {
-			return submissions[i].SubmissionID < submissions[j].SubmissionID
-		})
+	sort.Slice(submissions, func(i, j int) bool {
+		return submissions[i].SubmissionID < submissions[j].SubmissionID
+	})
+
+	return submissions, highScore
+}
+
+// getPaginationParams extracts and validates pagination parameters from the request
+func getPaginationParams(r *http.Request) (page, pageSize int) {
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("pageSize")
+
+	page = 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
 	}
 
-	data := struct {
-		TotalSubmissions int
-		AvgScore         float64
-		HighScore        float64
-		Submissions      []SubmissionData
-	}{
-		TotalSubmissions: len(submissions),
-		AvgScore:         avgScore,
+	pageSize = storage.DefaultPageSize
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= storage.MaxPageSize {
+			pageSize = ps
+		}
+	}
+
+	return page, pageSize
+}
+
+// executeTableContent renders the table content for HTMX partial updates using a template
+func executeTableContent(w http.ResponseWriter, data *SubmissionsPageData, rubricServer *RubricServer) error {
+	return rubricServer.templates.tableContentTmpl.Execute(w, data)
+}
+
+// serveSubmissionsPage serves the HTML page for viewing submissions
+func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
+	ctx := r.Context()
+
+	// Get pagination parameters
+	page, pageSize := getPaginationParams(r)
+
+	w.Header().Set(contentTypeHeader, htmlContentType)
+
+	// Fetch paginated results from storage
+	results, totalCount, err := rubricServer.storage.ListResultsPaginated(ctx, storage.ListResultsParams{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		slog.Error("Failed to list paginated results from storage", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse submissions and calculate scores
+	submissions, highScore := parseSubmissionsFromResults(results)
+
+	// Calculate pagination with actual total count from storage
+	totalPages := (totalCount + pageSize - 1) / pageSize
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+
+	data := SubmissionsPageData{
+		TotalSubmissions: totalCount,
 		HighScore:        highScore,
 		Submissions:      submissions,
+		CurrentPage:      page,
+		TotalPages:       totalPages,
+		PageSize:         pageSize,
+		HasPrevPage:      page > 1,
+		HasNextPage:      page < totalPages,
 	}
 
-	slog.Info("Template data", "total_submissions", len(submissions), "submissions_count", len(data.Submissions))
+	slog.Info("Serving submissions page",
+		"total_submissions", totalCount,
+		"page", page,
+		"total_pages", totalPages,
+		"page_submissions", len(submissions))
 
-	// Execute template (already parsed at package initialization)
+	// Check if this is an HTMX request (partial update)
+	if r.Header.Get("HX-Request") == "true" {
+		// Return only table content for HTMX
+		w.Header().Set(contentTypeHeader, htmlContentType)
+		if err := executeTableContent(w, &data, rubricServer); err != nil {
+			slog.Error("Failed to execute table content", "error", err)
+			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
 		slog.Error(templateExecErrMsg, "error", err)
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
@@ -321,7 +404,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 // serveSubmissionDetailPage serves the HTML page for a specific submission's details
 func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
 	// Set content type
-	w.Header().Set(contentTypeHeader, "text/html")
+	w.Header().Set(contentTypeHeader, htmlContentType)
 
 	// Extract submission ID from URL path
 	path := strings.TrimPrefix(r.URL.Path, "/submissions/")

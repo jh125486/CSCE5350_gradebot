@@ -20,7 +20,7 @@ type failingChrootFS struct {
 	billy.Filesystem
 }
 
-//nolint:ireturn // This is normal for billy.Filesystem implementations
+//nolint:ireturn // billy.Filesystem is not an interface we can change
 func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
 	if path == ".git" {
 		return nil, errors.New("chroot failed")

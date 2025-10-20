@@ -247,7 +247,7 @@ type MockCommandFactory struct {
 	mock.Mock
 }
 
-//nolint:ireturn // This is normal for billy.Filesystem implementations
+//nolint:ireturn // returning rubrics.Commander is the point of this mock
 func (m *MockCommandFactory) New(name string, arg ...string) rubrics.Commander {
 	args := m.Called(name, arg)
 	return args.Get(0).(rubrics.Commander)
