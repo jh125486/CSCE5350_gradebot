@@ -525,12 +525,12 @@ func (m *mockQualityServiceClient) EvaluateCodeQuality(ctx context.Context, req 
 	return connect.NewResponse(response), nil
 }
 
-func TestExecuteProject1_WithNilClients(t *testing.T) {
+func TestExecuteProject1WithNilClients(t *testing.T) {
 	// Skip this test as it reveals a separate bug where nil HTTP client causes panic in quality evaluation
 	t.Skip("This test reveals a bug where nil HTTP client causes panic in quality evaluation")
 }
 
-func TestAuthTransport_WithNilBase(t *testing.T) {
+func TestAuthTransportWithNilBase(t *testing.T) {
 	// Test that NewAuthTransport handles nil base transport correctly
 	// Instead of using nil, provide a mock transport that captures the request
 	var capturedRequest *http.Request
@@ -569,7 +569,7 @@ func (f *failingRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return nil, fmt.Errorf("transport failed: %w", errors.New("base error"))
 }
 
-func TestAuthTransport_BaseTransportError(t *testing.T) {
+func TestAuthTransportBaseTransportError(t *testing.T) {
 	// Test that auth transport properly propagates base transport errors
 	rt := client.NewAuthTransport("token", &failingRoundTripper{})
 
@@ -588,7 +588,7 @@ func TestAuthTransport_BaseTransportError(t *testing.T) {
 	}
 }
 
-func TestAuthTransport_EmptyToken(t *testing.T) {
+func TestAuthTransportEmptyToken(t *testing.T) {
 	// Test AuthTransport with empty token and cover upload error scenarios
 	mockTransport := &mockRoundTripper{
 		responses: make(map[string]*http.Response),
@@ -646,7 +646,7 @@ func TestAuthTransport_EmptyToken(t *testing.T) {
 	}
 }
 
-func TestAuthTransport_HeaderOverwrite(t *testing.T) {
+func TestAuthTransportHeaderOverwrite(t *testing.T) {
 	// Test that auth transport overwrites existing Authorization header
 	mockTransport := &mockRoundTripper{
 		responses: make(map[string]*http.Response),
@@ -710,7 +710,7 @@ func TestAuthTransport_HeaderOverwrite(t *testing.T) {
 	}
 }
 
-func TestExecuteProject2_Simple(t *testing.T) {
+func TestExecuteProject2Simple(t *testing.T) {
 	// Test ExecuteProject2 basic functionality with various configurations
 
 	cfg := client.Config{

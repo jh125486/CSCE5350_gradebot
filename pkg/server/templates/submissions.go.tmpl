@@ -4,79 +4,386 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GradeBot - Submissions</title>
+    
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- DataTables Material Design Styling -->
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.dataTables.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" rel="stylesheet">
+    
+    <!-- Material Design Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
-        .header { background: linear-gradient(135deg, #00853E 0%, #006A4E 100%); color: white; padding: 20px; text-align: center; }
-        .header h1 { margin: 0; font-size: 2.5em; }
-        .content { padding: 20px; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; border-left: 4px solid #00853E; }
-        .stat-number { font-size: 2em; font-weight: bold; color: #333; }
-        .stat-label { color: #666; margin-top: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #f8f9fa; font-weight: 600; color: #333; }
-        tr:hover { background-color: #f8f9fa; }
-        .submission-id { font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9em; color: #666; }
-        .submission-link { color: #00853E; text-decoration: none; }
-        .submission-link:hover { text-decoration: underline; }
-        .percentage { font-weight: bold; }
-        .percentage.high { color: #00853E; }
-        .percentage.medium { color: #006A4E; }
-        .percentage.low { color: #333333; }
+        :root {
+            --bs-primary: #00853E;
+            --bs-primary-rgb: 0, 133, 62;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+            min-height: 100vh;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #00853E 0%, #006A4E 100%);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .navbar-brand {
+            font-size: 1.5em;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        
+        .card {
+            border: none;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, #00853E 0%, #006A4E 100%);
+            border: none;
+            padding: 1.5rem;
+        }
+        
+        .card-header h5 {
+            color: white;
+            margin: 0;
+            font-weight: 600;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+            border-left: 4px solid #00853E;
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #00853E;
+            margin: 0.5rem 0;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .table-responsive {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .table {
+            margin-bottom: 0;
+        }
+        
+        .table thead th {
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            color: #333;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 0.5px;
+            padding: 1rem;
+            white-space: nowrap;
+        }
+        
+        .table tbody td {
+            padding: 1rem;
+            vertical-align: middle;
+        }
+        
+        .table tbody tr {
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s ease;
+        }
+        
+        .table tbody tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .submission-id {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        .submission-link {
+            color: #00853E;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .submission-link:hover {
+            color: #006A4E;
+            text-decoration: underline;
+        }
+        
+        .score-badge {
+            padding: 0.5rem 0.75rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+        
+        .score-high {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .score-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .score-low {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .dataTables_wrapper {
+            padding-top: 1rem;
+        }
+        
+        .dataTables_paginate {
+            margin-top: 1.5rem;
+        }
+        
+        .page-link {
+            color: #00853E;
+            border-color: #dee2e6;
+        }
+        
+        .page-link:hover {
+            background-color: #f0f0f0;
+            color: #006A4E;
+        }
+        
+        .page-item.active .page-link {
+            background-color: #00853E;
+            border-color: #00853E;
+        }
+        
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 1rem;
+            }
+            
+            .stat-number {
+                font-size: 1.8em;
+            }
+            
+            .table {
+                font-size: 0.85em;
+            }
+            
+            .table thead th,
+            .table tbody td {
+                padding: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🎓 GradeBot Dashboard</h1>
-            <p>View and manage student submissions</p>
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark sticky-top">
+        <div class="container-fluid">
+            <span class="navbar-brand">🎓 GradeBot Dashboard</span>
         </div>
-
-        <div class="content">
-            <div class="stats">
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="py-4">
+        <div class="container-fluid">
+            <!-- Stats -->
+            <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-number">{{.TotalSubmissions}}</div>
                     <div class="stat-label">Total Submissions</div>
+                    <div class="stat-number">{{.TotalSubmissions}}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number">{{printf "%.1f" .AvgScore}}%</div>
-                    <div class="stat-label">Average Score</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number">{{printf "%.1f" .HighScore}}%</div>
                     <div class="stat-label">Highest Score</div>
+                    <div class="stat-number">{{printf "%.1f" .HighScore}}%</div>
                 </div>
             </div>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>Submission ID</th>
-                        <th>Timestamp</th>
-                        <th>Total Points</th>
-                        <th>Awarded Points</th>
-                        <th>Percentage</th>
-                        <th>IP Address</th>
-                        <th>Location</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{range .Submissions}}
-                    <tr>
-                        <td><a href="/submissions/{{.SubmissionID}}" class="submission-link"><code class="submission-id">{{.SubmissionID}}</code> 🔗</a></td>
-                        <td>{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
-                        <td>{{printf "%.1f" .TotalPoints}}</td>
-                        <td>{{printf "%.1f" .AwardedPoints}}</td>
-                        <td><span class="percentage {{if ge .Score 80.0}}high{{else if ge .Score 60.0}}medium{{else}}low{{end}}">{{printf "%.1f" .Score}}%</span></td>
-                        <td><code class="submission-id">{{.IPAddress}}</code></td>
-                        <td>{{.GeoLocation}}</td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
+            
+            <!-- DataTable Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h5>📋 Student Submissions</h5>
+                </div>
+                <div class="card-body">
+                    <div id="page-container">
+                        <div class="table-responsive">
+                            <table id="submissions-table" class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Submission ID</th>
+                                        <th>Timestamp</th>
+                                        <th>Total Points</th>
+                                        <th>Awarded Points</th>
+                                        <th>Score</th>
+                                        <th>IP Address</th>
+                                        <th>Location</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{range .Submissions}}
+                                    <tr>
+                                        <td><a href="/submissions/{{.SubmissionID}}" class="submission-link"><code class="submission-id">{{.SubmissionID}}</code> 🔗</a></td>
+                                        <td><small>{{.Timestamp.Format "2006-01-02 15:04"}}</small></td>
+                                        <td>{{printf "%.1f" .TotalPoints}}</td>
+                                        <td>{{printf "%.1f" .AwardedPoints}}</td>
+                                        <td>
+                                            {{$score := .Score}}
+                                            {{if ge $score 80.0}}
+                                            <span class="score-badge score-high">{{printf "%.1f" $score}}%</span>
+                                            {{else if ge $score 60.0}}
+                                            <span class="score-badge score-medium">{{printf "%.1f" $score}}%</span>
+                                            {{else}}
+                                            <span class="score-badge score-low">{{printf "%.1f" $score}}%</span>
+                                            {{end}}
+                                        </td>
+                                        <td><code class="submission-id">{{.IPAddress}}</code></td>
+                                        <td><small>{{.GeoLocation}}</small></td>
+                                    </tr>
+                                    {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                        {{if gt .TotalPages 1}}
+                        <nav aria-label="Page navigation" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            {{if .HasPrevPage}}
+                            <li class="page-item"><a class="page-link" hx-get="?page=1&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">« First</a></li>
+                            <li class="page-item"><a class="page-link" hx-get="?page={{sub .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">‹ Previous</a></li>
+                            {{else}}
+                            <li class="page-item disabled"><span class="page-link">« First</span></li>
+                            <li class="page-item disabled"><span class="page-link">‹ Previous</span></li>
+                            {{end}}
+                            
+                            <li class="page-item active"><span class="page-link">{{.CurrentPage}} / {{.TotalPages}}</span></li>
+                            
+                            {{if .HasNextPage}}
+                            <li class="page-item"><a class="page-link" hx-get="?page={{add .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">Next ›</a></li>
+                            <li class="page-item"><a class="page-link" hx-get="?page={{.TotalPages}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">Last »</a></li>
+                            {{else}}
+                            <li class="page-item disabled"><span class="page-link">Next ›</span></li>
+                            <li class="page-item disabled"><span class="page-link">Last »</span></li>
+                            {{end}}
+                        </ul>
+                        </nav>
+                        <div class="text-center text-muted small"><p>Page {{.CurrentPage}} of {{.TotalPages}} • {{.TotalSubmissions}} total submissions</p></div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
         </div>
-    </div>
+    </main>
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDataTable();
+            
+            // Re-initialize DataTable after HTMX updates
+            htmx.on('htmx:afterSwap', function(evt) {
+                if (evt.detail.target.id === 'page-container') {
+                    // Destroy old table if it exists
+                    let tableElement = document.getElementById('submissions-table');
+                    if (tableElement && $.fn.DataTable.isDataTable(tableElement)) {
+                        $(tableElement).DataTable().destroy();
+                    }
+                    // Reinitialize
+                    initializeDataTable();
+                }
+            });
+        });
+        
+        function initializeDataTable() {
+            $('#submissions-table').DataTable({
+                ordering: false,  // Disable sorting - with server-side pagination, sorting only sorts current page
+                searching: false,
+                responsive: true,  // Enable responsive - hides columns on narrow viewports
+                autoWidth: false,
+                paging: false,  // Disable DataTables pagination (using HTMX server-side instead)
+                columnDefs: [
+                    {
+                        // Submission ID - NEVER hide (always visible)
+                        responsivePriority: 1,
+                        orderable: false,
+                        targets: 0
+                    },
+                    {
+                        // Timestamp - high priority, show before others
+                        responsivePriority: 2,
+                        orderable: false,
+                        targets: 1
+                    },
+                    {
+                        // Total Points - medium priority
+                        responsivePriority: 3,
+                        orderable: false,
+                        targets: 2
+                    },
+                    {
+                        // Awarded Points - medium priority
+                        responsivePriority: 4,
+                        orderable: false,
+                        targets: 3
+                    },
+                    {
+                        // Score - high priority (hide later)
+                        responsivePriority: 5,
+                        orderable: false,
+                        targets: 4
+                    },
+                    {
+                        // IP Address - low priority (hide first)
+                        responsivePriority: 10001,
+                        orderable: false,
+                        targets: 5
+                    },
+                    {
+                        // Location - lowest priority (hide second)
+                        responsivePriority: 10002,
+                        orderable: false,
+                        targets: 6
+                    }
+                ],
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>' +
+                     '<"row"<"col-sm-12"tr>>' +
+                     '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>'
+            });
+        }
+    </script>
 </body>
 </html>

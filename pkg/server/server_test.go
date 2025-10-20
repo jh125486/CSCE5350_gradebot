@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -61,13 +62,45 @@ func (m *mockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.
 	return result, nil
 }
 
-func (m *mockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
+func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (results map[string]*pb.Result, totalCount int, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	// Return a copy to avoid concurrent map writes
-	results := make(map[string]*pb.Result)
-	maps.Copy(results, m.results)
-	return results, nil
+
+	// Create sorted list of all submissions
+	keys := make([]string, 0, len(m.results))
+	for k := range m.results {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	totalCount = len(keys)
+
+	// Calculate pagination
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 {
+		params.PageSize = 20
+	}
+
+	startIdx := (params.Page - 1) * params.PageSize
+	endIdx := startIdx + params.PageSize
+	if startIdx >= totalCount && totalCount > 0 {
+		startIdx = max(totalCount-params.PageSize, 0)
+		endIdx = totalCount
+	}
+	if endIdx > totalCount {
+		endIdx = totalCount
+	}
+
+	// Get the requested page
+	results = make(map[string]*pb.Result)
+	for i := startIdx; i < endIdx; i++ {
+		key := keys[i]
+		results[key] = m.results[key]
+	}
+
+	return results, totalCount, nil
 }
 
 // mockConnectRequest wraps a connect request with mock peer info for testing
@@ -89,7 +122,7 @@ func getClientIPFromMock(ctx context.Context, req *mockConnectRequest) string {
 	return extractClientIP(ctx, req)
 }
 
-func TestStart_InvalidPort(t *testing.T) {
+func TestStartInvalidPort(t *testing.T) {
 	cfg := Config{
 		ID:           "id",
 		Port:         "notaport",
@@ -135,7 +168,7 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestEvaluateCodeQuality_Behaviors(t *testing.T) {
+func TestEvaluateCodeQualityBehaviors(t *testing.T) {
 	// Empty file list -> invalid argument error
 	qs := &QualityServer{OpenAIClient: &mockReviewer{}}
 	req := connectgo.NewRequest(&pb.EvaluateCodeQualityRequest{Files: []*pb.File{}})
@@ -166,7 +199,7 @@ func TestEvaluateCodeQuality_Behaviors(t *testing.T) {
 	}
 }
 
-func TestStart_CancelReturnsContextErr(t *testing.T) {
+func TestStartCancelReturnsContextErr(t *testing.T) {
 	// start with a short timeout context so Start will shut down cleanly
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
@@ -276,7 +309,7 @@ func TestGetClientIP(t *testing.T) {
 	}
 }
 
-func TestGetGeoLocation_WithMockClient(t *testing.T) {
+func TestGetGeoLocationWithMockClient(t *testing.T) {
 	tests := []struct {
 		name     string
 		ip       string
@@ -405,7 +438,7 @@ func TestGeoLocationClient(t *testing.T) {
 	}
 }
 
-func TestGeoLocationClient_LocalIPs(t *testing.T) {
+func TestGeoLocationClientLocalIPs(t *testing.T) {
 	client := &GeoLocationClient{
 		Client: &http.Client{},
 	}
@@ -467,7 +500,7 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return m.response, nil
 }
 
-func TestGeoLocationClient_RequestError(t *testing.T) {
+func TestGeoLocationClientRequestError(t *testing.T) {
 	// Test when the HTTP request itself fails
 	client := &GeoLocationClient{
 		Client: &http.Client{
@@ -693,7 +726,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			name:               "EmptyResults",
 			setupResults:       map[string]*pb.Result{},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score"},
+			expectedContent:    []string{"Total Submissions", "Highest Score"},
 		},
 		{
 			name: "SingleSubmission",
@@ -735,7 +768,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score", "test-123", "test-456"},
+			expectedContent:    []string{"Total Submissions", "Highest Score", "test-123", "test-456"},
 		},
 		{
 			name: "ZeroTotalPoints",
@@ -751,7 +784,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score"},
+			expectedContent:    []string{"Total Submissions", "Highest Score"},
 		},
 	}
 
@@ -790,7 +823,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 	}
 }
 
-func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
+func TestServeSubmissionsPageErrorCases(t *testing.T) {
 	tests := []struct {
 		name               string
 		storageError       error
@@ -807,9 +840,9 @@ func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a custom mock storage that returns an error for ListResults
+			// Create a custom mock storage that returns an error for ListResultsPaginated
 			mockStore := &errorMockStorage{
-				listResultsErr: tt.storageError,
+				listResultsPagErr: tt.storageError,
 			}
 			server := newMockRubricServer(mockStore)
 
@@ -833,15 +866,15 @@ func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
 // errorMockStorage is a mock storage that can be configured to return errors
 type errorMockStorage struct {
 	mockStorage
-	listResultsErr error
-	loadResultErr  error
+	listResultsPagErr error
+	loadResultErr     error
 }
 
-func (m *errorMockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
-	if m.listResultsErr != nil {
-		return nil, m.listResultsErr
+func (m *errorMockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (results map[string]*pb.Result, totalCount int, err error) {
+	if m.listResultsPagErr != nil {
+		return nil, 0, m.listResultsPagErr
 	}
-	return m.mockStorage.ListResults(ctx)
+	return m.mockStorage.ListResultsPaginated(ctx, params)
 }
 
 func (m *errorMockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.Result, error) {
@@ -863,7 +896,7 @@ func newMockRubricServer(stor storage.Storage) *RubricServer {
 	return server
 }
 
-func TestServeSubmissionsPage_TimestampParseError(t *testing.T) {
+func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 	// Test case where timestamp parsing fails
 	mockStore := newMockStorage()
 	result := &pb.Result{
@@ -1017,4 +1050,500 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestServeSubmissionsPagePagination verifies that pagination correctly shows all submissions across pages
+func TestServeSubmissionsPagePagination(t *testing.T) {
+	tests := []struct {
+		name               string
+		totalSubmissions   int
+		pageSize           int
+		requestPage        int
+		expectedPageCount  int
+		expectedItemCount  int
+		expectedHasPrev    bool
+		expectedHasNext    bool
+		expectedContent    []string
+		notExpectedContent []string
+	}{
+		{
+			name:               "Page1Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        1,
+			expectedPageCount:  3,
+			expectedItemCount:  15,
+			expectedHasPrev:    false,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", "page-item disabled", "« First"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "Page2Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        2,
+			expectedPageCount:  3,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 2 of 3", "2 / 3", "First", "Previous", "Next", "Last", "hx-get", "hx-target"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "Page3Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        3,
+			expectedPageCount:  3,
+			expectedItemCount:  5,
+			expectedHasPrev:    true,
+			expectedHasNext:    false,
+			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsWithPageSize15",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        1,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    false,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 1 of 35", "1 / 35", "525 total", "Next", "Last", "« First"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsMiddlePage",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        18,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 18 of 35", "18 / 35", "525 total", "First", "Previous", "Next", "Last"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsLastPage",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        35,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    false,
+			expectedContent:    []string{"Page 35 of 35", "35 / 35", "525 total", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			notExpectedContent: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test results
+			mockStore := newMockStorage()
+			for i := 0; i < tt.totalSubmissions; i++ {
+				submissionID := fmt.Sprintf("submission-%d", i)
+				result := &pb.Result{
+					SubmissionId: submissionID,
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*pb.RubricItem{
+						{Name: "Item 1", Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
+					},
+					IpAddress:   fmt.Sprintf("192.168.1.%d", i%256),
+					GeoLocation: "Test Location",
+				}
+				err := mockStore.SaveResult(t.Context(), submissionID, result)
+				assert.NoError(t, err)
+			}
+			server := NewRubricServer(mockStore)
+
+			// Create request for specific page and page size
+			url := fmt.Sprintf("/submissions?page=%d&pageSize=%d", tt.requestPage, tt.pageSize)
+			req := httptest.NewRequest(http.MethodGet, url, http.NoBody)
+			rr := httptest.NewRecorder()
+
+			// Call handler
+			serveSubmissionsPage(rr, req, server)
+
+			// Verify status
+			assert.Equal(t, http.StatusOK, rr.Code)
+
+			body := rr.Body.String()
+
+			// Verify page information is in response
+			for _, expected := range tt.expectedContent {
+				assert.Contains(t, body, expected, "Response should contain: %s", expected)
+			}
+
+			// Verify unwanted content is NOT in response
+			for _, notExpected := range tt.notExpectedContent {
+				assert.NotContains(t, body, notExpected, "Response should NOT contain: %s", notExpected)
+			}
+
+			// Count table rows: Extract tbody and count <tr> tags
+			// Find tbody section
+			tbodyStart := strings.Index(body, "<tbody>")
+			tbodyEnd := strings.Index(body, "</tbody>")
+			if tbodyStart > 0 && tbodyEnd > tbodyStart {
+				tbody := body[tbodyStart:tbodyEnd]
+				// Count <tr> tags in tbody (each submission row has one)
+				bodyRows := strings.Count(tbody, "<tr>")
+				assert.Equal(t, tt.expectedItemCount, bodyRows, "Page should have %d submissions", tt.expectedItemCount)
+			} else {
+				t.Fatal("Could not find tbody in response")
+			}
+
+			// Verify pagination controls exist
+			assert.Contains(t, body, "<nav aria-label=\"Page navigation\"", "Should have pagination nav")
+			assert.Contains(t, body, "<ul class=\"pagination", "Should have pagination list")
+
+			// Verify HTMX attributes on pagination links
+			assert.Contains(t, body, "hx-get=", "Pagination should use HTMX")
+			assert.Contains(t, body, "hx-target=\"#page-container\"", "Should target page-container")
+			assert.Contains(t, body, "hx-push-url=\"true\"", "Should update URL")
+
+			// Verify total count
+			assert.Contains(t, body, fmt.Sprintf("%d total", tt.totalSubmissions), "Should show total count")
+		})
+	}
+}
+
+func TestGetPaginationParamsUnit(t *testing.T) {
+	tests := []struct {
+		name         string
+		queryParams  string
+		expectedPage int
+		expectedSize int
+	}{
+		{
+			name:         "default_values",
+			queryParams:  "",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "valid_page",
+			queryParams:  "?page=3",
+			expectedPage: 3,
+			expectedSize: 20,
+		},
+		{
+			name:         "valid_page_size",
+			queryParams:  "?pageSize=50",
+			expectedPage: 1,
+			expectedSize: 50,
+		},
+		{
+			name:         "both_parameters",
+			queryParams:  "?page=2&pageSize=30",
+			expectedPage: 2,
+			expectedSize: 30,
+		},
+		{
+			name:         "invalid_page_non_numeric",
+			queryParams:  "?page=abc",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "zero_page",
+			queryParams:  "?page=0",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "negative_page",
+			queryParams:  "?page=-5",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "page_size_too_large",
+			queryParams:  "?pageSize=150",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "zero_page_size",
+			queryParams:  "?pageSize=0",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "negative_page_size",
+			queryParams:  "?pageSize=-10",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "max_valid_page_size",
+			queryParams:  "?pageSize=100",
+			expectedPage: 1,
+			expectedSize: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/"+tt.queryParams, http.NoBody)
+			page, pageSize := getPaginationParams(req)
+			assert.Equal(t, tt.expectedPage, page, "page mismatch")
+			assert.Equal(t, tt.expectedSize, pageSize, "pageSize mismatch")
+		})
+	}
+}
+
+func TestExecuteTableContentUnit(t *testing.T) {
+	tests := []struct {
+		name               string
+		data               *SubmissionsPageData
+		expectedContent    []string
+		notExpectedContent []string
+	}{
+		{
+			name: "empty_submissions",
+			data: &SubmissionsPageData{
+				Submissions:      []SubmissionData{},
+				TotalSubmissions: 0,
+			},
+			expectedContent: []string{
+				"<div class=\"table-responsive\">",
+				"<table id=\"submissions-table\"",
+				"<th>Submission ID</th>",
+				"<tbody>",
+				"</tbody>",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "single_submission",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-001",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity/TestCountry",
+						TotalPoints:   100,
+						AwardedPoints: 85,
+						Score:         85.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"<tr>",
+				"test-001",
+				"192.168.1.1",
+				"TestCity/TestCountry",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "high_score_formatting",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-high",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity",
+						TotalPoints:   100,
+						AwardedPoints: 95,
+						Score:         95.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"score-high",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "low_score_formatting",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-low",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity",
+						TotalPoints:   100,
+						AwardedPoints: 50,
+						Score:         50.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"score-low",
+			},
+			notExpectedContent: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test server with mock storage
+			mockStore := newMockStorage()
+			server := NewRubricServer(mockStore)
+
+			w := httptest.NewRecorder()
+			err := executeTableContent(w, tt.data, server)
+			assert.NoError(t, err)
+
+			body := w.Body.String()
+			for _, expected := range tt.expectedContent {
+				assert.Contains(t, body, expected, "Expected content not found: %s", expected)
+			}
+			for _, notExpected := range tt.notExpectedContent {
+				assert.NotContains(t, body, notExpected, "Unexpected content found: %s", notExpected)
+			}
+		})
+	}
+}
+
+// TestServeSubmissionsPageHTMXRequest tests the HTMX partial update path
+func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
+	// Create test results
+	mockStore := newMockStorage()
+	for i := range 25 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+			IpAddress:   "192.168.1.100",
+			GeoLocation: "New York, NY, United States",
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	server := NewRubricServer(mockStore)
+
+	// Create request with HX-Request header
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=2&pageSize=10", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	// Call the handler
+	serveSubmissionsPage(w, req, server)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// HTMX response should NOT have full HTML structure (no <html>, <head>, etc.)
+	assert.NotContains(t, body, "<html>")
+	assert.NotContains(t, body, "<head>")
+	assert.NotContains(t, body, "<body>")
+
+	// Should contain table content
+	assert.Contains(t, body, "<table")
+	assert.Contains(t, body, "<tbody>")
+
+	// Should contain pagination for page 2
+	assert.Contains(t, body, "Page 2 of 3")
+}
+
+// TestServeSubmissionsPagePageClamping tests that pages beyond total are clamped
+func TestServeSubmissionsPagePageClamping(t *testing.T) {
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric:       []*pb.RubricItem{{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"}},
+			IpAddress:    "192.168.1.100",
+			GeoLocation:  "New York, NY, United States",
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	server := NewRubricServer(mockStore)
+
+	// Request page 100 when there are only 5 items (1 page with pageSize=10)
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=100&pageSize=10", http.NoBody)
+	w := httptest.NewRecorder()
+
+	serveSubmissionsPage(w, req, server)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// With only 1 page, pagination is hidden, but should contain all 5 submissions
+	assert.Contains(t, body, "test-000")
+	assert.Contains(t, body, "test-004")
+	assert.Contains(t, body, "5")
+}
+
+func TestServeSubmissionsPageHTMXTemplateError(t *testing.T) {
+	// Create mock storage with test data
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	// Create server with broken table content template
+	server := NewRubricServer(mockStore)
+	// Replace with broken template
+	server.templates.tableContentTmpl = template.Must(template.New("table").Parse(`{{.NonexistentField}}`))
+
+	// Create HTMX request
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=1&pageSize=10", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	// Execute
+	serveSubmissionsPage(w, req, server)
+
+	// Verify error response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "template execution error")
+}
+
+func TestServeSubmissionsPageFullTemplateError(t *testing.T) {
+	// Create mock storage with test data
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	// Create server with broken submissions template
+	server := NewRubricServer(mockStore)
+	// Replace with broken template
+	server.templates.submissionsTmpl = template.Must(template.New("submissions").Parse(`{{.NonexistentField}}`))
+
+	// Create regular request (not HTMX)
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=1&pageSize=10", http.NoBody)
+	w := httptest.NewRecorder()
+
+	// Execute
+	serveSubmissionsPage(w, req, server)
+
+	// Verify error response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "template execution error")
 }
