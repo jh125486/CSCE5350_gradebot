@@ -1405,3 +1405,47 @@ func TestExecuteTableContentUnit(t *testing.T) {
 		})
 	}
 }
+
+// TestServeSubmissionsPageHTMXRequest tests the HTMX partial update path
+func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
+	// Create test results
+	mockStore := newMockStorage()
+	for i := range 25 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+			IpAddress:   "192.168.1.100",
+			GeoLocation: "New York, NY, United States",
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	server := NewRubricServer(mockStore)
+
+	// Create request with HX-Request header
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=2&pageSize=10", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	// Call the handler
+	serveSubmissionsPage(w, req, server)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// HTMX response should NOT have full HTML structure (no <html>, <head>, etc.)
+	assert.NotContains(t, body, "<html>")
+	assert.NotContains(t, body, "<head>")
+	assert.NotContains(t, body, "<body>")
+
+	// Should contain table content
+	assert.Contains(t, body, "<table")
+	assert.Contains(t, body, "<tbody>")
+
+	// Should contain pagination for page 2
+	assert.Contains(t, body, "Page 2 of 3")
+}

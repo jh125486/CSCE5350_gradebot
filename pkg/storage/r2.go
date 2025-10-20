@@ -19,6 +19,13 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
+const (
+	// DefaultPageSize is the default number of results per page when not specified
+	DefaultPageSize = 20
+	// MaxPageSize is the maximum allowed results per page
+	MaxPageSize = 100
+)
+
 // ListResultsParams holds pagination parameters for ListResults
 type ListResultsParams struct {
 	Page     int // 1-indexed page number
@@ -45,6 +52,10 @@ type Config struct {
 
 	// Addressing style
 	UsePathStyle bool
+
+	// MaxConcurrentFetches limits parallel fetches in ListResultsPaginated.
+	// Default is 30 if not set or <= 0.
+	MaxConcurrentFetches int
 }
 
 // NewConfig creates storage config from provided parameters
@@ -67,8 +78,9 @@ func NewConfig(endpoint, region, bucket, accessKeyID, secretAccessKey string, us
 
 // R2Storage implements Storage using Cloudflare R2 (S3-compatible)
 type R2Storage struct {
-	client *s3.Client
-	bucket string
+	client               *s3.Client
+	bucket               string
+	maxConcurrentFetches int
 }
 
 // NewR2Storage creates a new R2 storage instance
@@ -103,9 +115,15 @@ func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
 		o.BaseEndpoint = &cfg.Endpoint
 	})
 
+	maxConcurrentFetches := cfg.MaxConcurrentFetches
+	if maxConcurrentFetches <= 0 {
+		maxConcurrentFetches = 30 // Default concurrency limit
+	}
+
 	storage := &R2Storage{
-		client: client,
-		bucket: cfg.Bucket,
+		client:               client,
+		bucket:               cfg.Bucket,
+		maxConcurrentFetches: maxConcurrentFetches,
 	}
 
 	// Ensure bucket exists, create if it doesn't
@@ -184,7 +202,8 @@ func (r *R2Storage) LoadResult(ctx context.Context, submissionID string) (*proto
 	return &result, nil
 }
 
-// ListResultsPaginated loads rubric results with pagination, only fetching the requested page
+// ListResultsPaginated loads rubric results with pagination, only fetching the requested page.
+// If the requested page exceeds available pages, returns the last page. Page numbers start at 1.
 func (r *R2Storage) ListResultsPaginated(
 	ctx context.Context,
 	params ListResultsParams,
@@ -194,8 +213,8 @@ func (r *R2Storage) ListResultsPaginated(
 	if params.Page < 1 {
 		params.Page = 1
 	}
-	if params.PageSize < 1 || params.PageSize > 1000 {
-		params.PageSize = 20 // Default
+	if params.PageSize < 1 || params.PageSize > MaxPageSize {
+		params.PageSize = DefaultPageSize
 	}
 
 	// Collect all keys from storage
@@ -283,7 +302,7 @@ func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[
 
 	// Create errgroup with context for better error handling and context cancellation
 	wg, ctx := errgroup.WithContext(ctx)
-	wg.SetLimit(30) // Limit to 30 concurrent requests
+	wg.SetLimit(r.maxConcurrentFetches) // Limit concurrent requests based on config
 
 	for _, key := range keys {
 		wg.Go(func() error {

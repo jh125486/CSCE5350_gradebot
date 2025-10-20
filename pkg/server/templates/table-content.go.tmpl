@@ -39,8 +39,8 @@
 <nav aria-label="Page navigation" class="mt-4">
 <ul class="pagination justify-content-center">
 {{if .HasPrevPage}}
-<li class="page-item"><a class="page-link" hx-get="?page=1&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">« First</a></li>
-<li class="page-item"><a class="page-link" hx-get="?page={{sub .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">‹ Previous</a></li>
+<li class="page-item"><a class="page-link" hx-get="?page=1&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="?page=1&pageSize={{.PageSize}}">« First</a></li>
+<li class="page-item"><a class="page-link" hx-get="?page={{sub .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="?page={{sub .CurrentPage 1}}&pageSize={{.PageSize}}">‹ Previous</a></li>
 {{else}}
 <li class="page-item disabled"><span class="page-link">« First</span></li>
 <li class="page-item disabled"><span class="page-link">‹ Previous</span></li>
@@ -49,8 +49,8 @@
 <li class="page-item active"><span class="page-link">{{.CurrentPage}} / {{.TotalPages}}</span></li>
 
 {{if .HasNextPage}}
-<li class="page-item"><a class="page-link" hx-get="?page={{add .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">Next ›</a></li>
-<li class="page-item"><a class="page-link" hx-get="?page={{.TotalPages}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="#">Last »</a></li>
+<li class="page-item"><a class="page-link" hx-get="?page={{add .CurrentPage 1}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="?page={{add .CurrentPage 1}}&pageSize={{.PageSize}}">Next ›</a></li>
+<li class="page-item"><a class="page-link" hx-get="?page={{.TotalPages}}&pageSize={{.PageSize}}" hx-target="#page-container" hx-swap="innerHTML" hx-push-url="true" href="?page={{.TotalPages}}&pageSize={{.PageSize}}">Last »</a></li>
 {{else}}
 <li class="page-item disabled"><span class="page-link">Next ›</span></li>
 <li class="page-item disabled"><span class="page-link">Last »</span></li>

@@ -321,9 +321,9 @@ func getPaginationParams(r *http.Request) (page, pageSize int) {
 		}
 	}
 
-	pageSize = 20 // Default page size
+	pageSize = storage.DefaultPageSize
 	if pageSizeStr != "" {
-		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= storage.MaxPageSize {
 			pageSize = ps
 		}
 	}

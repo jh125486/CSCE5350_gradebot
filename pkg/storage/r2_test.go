@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	testEndpoint = "https://example.com"
-	testBucket   = "test-bucket"
+	testEndpoint    = "https://example.com"
+	testBucket      = "test-bucket"
+	testIDOverwrite = "overwrite-test"
 )
 
 func skipIfNoEndpoint(t *testing.T) {
@@ -282,9 +283,9 @@ func TestSaveResult(t *testing.T) {
 		{
 			name: "overwrite_existing",
 			args: args{
-				submissionID: "overwrite-test",
+				submissionID: testIDOverwrite,
 				result: &proto.Result{
-					SubmissionId: "overwrite-test",
+					SubmissionId: testIDOverwrite,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*proto.RubricItem{
 						{Name: "Second", Points: 20.0, Awarded: 15.0, Note: "Second version"},
@@ -293,18 +294,18 @@ func TestSaveResult(t *testing.T) {
 			},
 			setup: func(t *testing.T) {
 				firstResult := &proto.Result{
-					SubmissionId: "overwrite-test",
+					SubmissionId: testIDOverwrite,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*proto.RubricItem{
 						{Name: "First", Points: 10.0, Awarded: 5.0, Note: "First version"},
 					},
 				}
-				err := s.SaveResult(ctx, "overwrite-test", firstResult)
+				err := s.SaveResult(ctx, testIDOverwrite, firstResult)
 				require.NoError(t, err)
 				time.Sleep(100 * time.Millisecond)
 			},
 			verify: func(t *testing.T) {
-				loaded, err := s.LoadResult(ctx, "overwrite-test")
+				loaded, err := s.LoadResult(ctx, testIDOverwrite)
 				require.NoError(t, err)
 				assert.Equal(t, "Second", loaded.Rubric[0].Name)
 				assert.Equal(t, 20.0, loaded.Rubric[0].Points)
