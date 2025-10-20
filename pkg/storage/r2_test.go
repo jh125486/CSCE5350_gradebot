@@ -212,7 +212,7 @@ func TestNewR2Storage(t *testing.T) {
 	}
 }
 
-func TestR2Storage_SaveResult(t *testing.T) {
+func TestR2StorageSaveResult(t *testing.T) {
 	skipIfNoEndpoint(t)
 	t.Parallel()
 
@@ -427,7 +427,7 @@ func TestR2Storage_SaveResult(t *testing.T) {
 	}
 }
 
-func TestR2Storage_LoadResult(t *testing.T) {
+func TestR2StorageLoadResult(t *testing.T) {
 	skipIfNoEndpoint(t)
 	t.Parallel()
 
@@ -538,7 +538,7 @@ func TestR2Storage_LoadResult(t *testing.T) {
 	}
 }
 
-func TestR2Storage_ListResults(t *testing.T) {
+func TestR2StorageListResults(t *testing.T) {
 	skipIfNoEndpoint(t)
 	t.Parallel()
 
@@ -802,3 +802,122 @@ func TestR2Storage_ListResults(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculatePaginationBounds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		page      int
+		pageSize  int
+		totalCount int
+		wantStart int
+		wantEnd   int
+	}{
+		{
+			name:       "first_page",
+			page:       1,
+			pageSize:   10,
+			totalCount: 100,
+			wantStart:  0,
+			wantEnd:    10,
+		},
+		{
+			name:       "middle_page",
+			page:       5,
+			pageSize:   10,
+			totalCount: 100,
+			wantStart:  40,
+			wantEnd:    50,
+		},
+		{
+			name:       "last_page_full",
+			page:       10,
+			pageSize:   10,
+			totalCount: 100,
+			wantStart:  90,
+			wantEnd:    100,
+		},
+		{
+			name:       "last_page_partial",
+			page:       11,
+			pageSize:   10,
+			totalCount: 105,
+			wantStart:  100,
+			wantEnd:    105,
+		},
+		{
+			name:       "page_beyond_total",
+			page:       20,
+			pageSize:   10,
+			totalCount: 50,
+			wantStart:  40,
+			wantEnd:    50,
+		},
+		{
+			name:       "empty_results",
+			page:       1,
+			pageSize:   10,
+			totalCount: 0,
+			wantStart:  0,
+			wantEnd:    0,
+		},
+		{
+			name:       "single_item",
+			page:       1,
+			pageSize:   10,
+			totalCount: 1,
+			wantStart:  0,
+			wantEnd:    1,
+		},
+		{
+			name:       "page_size_one",
+			page:       1,
+			pageSize:   1,
+			totalCount: 10,
+			wantStart:  0,
+			wantEnd:    1,
+		},
+		{
+			name:       "page_size_larger_than_total",
+			page:       1,
+			pageSize:   1000,
+			totalCount: 50,
+			wantStart:  0,
+			wantEnd:    50,
+		},
+		{
+			name:       "page_2_small_page_size",
+			page:       2,
+			pageSize:   5,
+			totalCount: 12,
+			wantStart:  5,
+			wantEnd:    10,
+		},
+		{
+			name:       "large_page_size",
+			page:       1,
+			pageSize:   1000,
+			totalCount: 525,
+			wantStart:  0,
+			wantEnd:    525,
+		},
+		{
+			name:       "exactly_at_page_boundary",
+			page:       3,
+			pageSize:   35,
+			totalCount: 105,
+			wantStart:  70,
+			wantEnd:    105,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end := storage.CalculatePaginationBounds(tt.page, tt.pageSize, tt.totalCount)
+			assert.Equal(t, tt.wantStart, start, "Start index mismatch")
+			assert.Equal(t, tt.wantEnd, end, "End index mismatch")
+		})
+	}
+}
+

@@ -266,8 +266,8 @@ func (r *R2Storage) collectAllKeys(ctx context.Context) ([]string, error) {
 	return allKeys, nil
 }
 
-// calculatePaginationBounds computes start and end indices for pagination
-func calculatePaginationBounds(page, pageSize, totalCount int) (int, int) {
+// CalculatePaginationBounds computes start and end indices for pagination
+func CalculatePaginationBounds(page, pageSize, totalCount int) (int, int) {
 	startIdx := (page - 1) * pageSize
 	endIdx := startIdx + pageSize
 
@@ -305,7 +305,7 @@ func (r *R2Storage) ListResultsPaginated(ctx context.Context, params ListResults
 	totalCount := len(allKeys)
 
 	// Calculate pagination boundaries
-	startIdx, endIdx := calculatePaginationBounds(params.Page, params.PageSize, totalCount)
+	startIdx, endIdx := CalculatePaginationBounds(params.Page, params.PageSize, totalCount)
 
 	// Fetch results for this page in parallel
 	pageKeys := allKeys[startIdx:endIdx]

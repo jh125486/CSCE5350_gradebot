@@ -134,7 +134,7 @@ func getClientIPFromMock(ctx context.Context, req *mockConnectRequest) string {
 	return extractClientIP(ctx, req)
 }
 
-func TestStart_InvalidPort(t *testing.T) {
+func TestStartInvalidPort(t *testing.T) {
 	cfg := Config{
 		ID:           "id",
 		Port:         "notaport",
@@ -180,7 +180,7 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestEvaluateCodeQuality_Behaviors(t *testing.T) {
+func TestEvaluateCodeQualityBehaviors(t *testing.T) {
 	// Empty file list -> invalid argument error
 	qs := &QualityServer{OpenAIClient: &mockReviewer{}}
 	req := connectgo.NewRequest(&pb.EvaluateCodeQualityRequest{Files: []*pb.File{}})
@@ -211,7 +211,7 @@ func TestEvaluateCodeQuality_Behaviors(t *testing.T) {
 	}
 }
 
-func TestStart_CancelReturnsContextErr(t *testing.T) {
+func TestStartCancelReturnsContextErr(t *testing.T) {
 	// start with a short timeout context so Start will shut down cleanly
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
@@ -321,7 +321,7 @@ func TestGetClientIP(t *testing.T) {
 	}
 }
 
-func TestGetGeoLocation_WithMockClient(t *testing.T) {
+func TestGetGeoLocationWithMockClient(t *testing.T) {
 	tests := []struct {
 		name     string
 		ip       string
@@ -450,7 +450,7 @@ func TestGeoLocationClient(t *testing.T) {
 	}
 }
 
-func TestGeoLocationClient_LocalIPs(t *testing.T) {
+func TestGeoLocationClientLocalIPs(t *testing.T) {
 	client := &GeoLocationClient{
 		Client: &http.Client{},
 	}
@@ -512,7 +512,7 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return m.response, nil
 }
 
-func TestGeoLocationClient_RequestError(t *testing.T) {
+func TestGeoLocationClientRequestError(t *testing.T) {
 	// Test when the HTTP request itself fails
 	client := &GeoLocationClient{
 		Client: &http.Client{
@@ -835,7 +835,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 	}
 }
 
-func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
+func TestServeSubmissionsPageErrorCases(t *testing.T) {
 	tests := []struct {
 		name               string
 		storageError       error
@@ -916,7 +916,7 @@ func newMockRubricServer(stor storage.Storage) *RubricServer {
 	return server
 }
 
-func TestServeSubmissionsPage_TimestampParseError(t *testing.T) {
+func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 	// Test case where timestamp parsing fails
 	mockStore := newMockStorage()
 	result := &pb.Result{

@@ -25,13 +25,17 @@ import (
 )
 
 const (
-	submissionsTmplFile = "submissions.go.tmpl"
-	submissionTmplFile  = "submission.go.tmpl"
-	unknownIP           = "unknown"
-	unknownLocation     = "Unknown"
-	localUnknown        = "Local/Unknown"
-	contentTypeHeader   = "Content-Type"
-	templateExecErrMsg  = "template execution error"
+	submissionsTmplFile    = "submissions.go.tmpl"
+	submissionTmplFile     = "submission.go.tmpl"
+	unknownIP              = "unknown"
+	unknownLocation        = "Unknown"
+	localUnknown           = "Local/Unknown"
+	contentTypeHeader      = "Content-Type"
+	templateExecErrMsg     = "template execution error"
+	htmlContentType        = "text/html"
+	xForwardedForHeader    = "X-Forwarded-For"
+	xRealIPHeader          = "X-Real-IP"
+	cfConnectingIPHeader   = "CF-Connecting-IP"
 )
 
 var (
@@ -52,24 +56,56 @@ func extractClientIP(ctx context.Context, req IPExtractable) string {
 		return realIP
 	}
 
-	// Method 2: Try to extract from HTTP headers in the Connect request
+	// Method 2: Try to extract from HTTP headers
+	if ip := extractFromXForwardedFor(req); ip != unknownIP {
+		return ip
+	}
+
+	if ip := extractFromXRealIP(req); ip != unknownIP {
+		return ip
+	}
+
+	if ip := extractFromCFConnectingIP(req); ip != unknownIP {
+		return ip
+	}
+
+	// Method 3: Try peer info as fallback
+	return extractFromPeer(req)
+}
+
+// extractFromXForwardedFor extracts IP from X-Forwarded-For header
+func extractFromXForwardedFor(req IPExtractable) string {
 	headers := req.Header()
-	if xff := headers.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP from comma-separated list
+	if xff := headers.Get(xForwardedForHeader); xff != "" {
 		if ips := strings.Split(xff, ","); len(ips) > 0 {
 			if ip := strings.TrimSpace(ips[0]); ip != "" && ip != unknownIP {
 				return ip
 			}
 		}
 	}
-	if xri := headers.Get("X-Real-IP"); xri != "" && xri != unknownIP {
+	return unknownIP
+}
+
+// extractFromXRealIP extracts IP from X-Real-IP header
+func extractFromXRealIP(req IPExtractable) string {
+	headers := req.Header()
+	if xri := headers.Get(xRealIPHeader); xri != "" && xri != unknownIP {
 		return xri
 	}
-	if cfip := headers.Get("CF-Connecting-IP"); cfip != "" && cfip != unknownIP {
+	return unknownIP
+}
+
+// extractFromCFConnectingIP extracts IP from CF-Connecting-IP header
+func extractFromCFConnectingIP(req IPExtractable) string {
+	headers := req.Header()
+	if cfip := headers.Get(cfConnectingIPHeader); cfip != "" && cfip != unknownIP {
 		return cfip
 	}
+	return unknownIP
+}
 
-	// Method 3: Try peer info as fallback
+// extractFromPeer extracts IP from peer address
+func extractFromPeer(req IPExtractable) string {
 	peer := req.Peer()
 	if peer.Addr != "" {
 		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
@@ -77,7 +113,6 @@ func extractClientIP(ctx context.Context, req IPExtractable) string {
 		}
 		return peer.Addr
 	}
-
 	return unknownIP
 }
 
@@ -348,7 +383,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	// Get pagination parameters
 	page, pageSize := getPaginationParams(r)
 
-	w.Header().Set(contentTypeHeader, "text/html")
+	w.Header().Set(contentTypeHeader, htmlContentType)
 
 	// Fetch paginated results from storage
 	results, totalCount, err := rubricServer.storage.ListResultsPaginated(ctx, storage.ListResultsParams{
@@ -390,7 +425,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	// Check if this is an HTMX request (partial update)
 	if r.Header.Get("HX-Request") == "true" {
 		// Return only table content for HTMX
-		w.Header().Set(contentTypeHeader, "text/html")
+		w.Header().Set(contentTypeHeader, htmlContentType)
 		if err := executeTableContent(w, &data); err != nil {
 			slog.Error("Failed to execute table content", "error", err)
 			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
@@ -401,8 +436,8 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 
 	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
-		slog.Error("Failed to execute template", "error", err)
-		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
+		slog.Error(templateExecErrMsg, "error", err)
+		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
 }
@@ -410,7 +445,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 // serveSubmissionDetailPage serves the HTML page for a specific submission's details
 func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
 	// Set content type
-	w.Header().Set(contentTypeHeader, "text/html")
+	w.Header().Set(contentTypeHeader, htmlContentType)
 
 	// Extract submission ID from URL path
 	path := strings.TrimPrefix(r.URL.Path, "/submissions/")
@@ -481,8 +516,8 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 
 	if err := rubricServer.templates.submissionTmpl.Execute(w, data); err != nil {
-		slog.Error("Failed to execute template", "error", err)
-		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
+		slog.Error(templateExecErrMsg, "error", err)
+		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
 }
