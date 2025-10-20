@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1448,4 +1449,101 @@ func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
 
 	// Should contain pagination for page 2
 	assert.Contains(t, body, "Page 2 of 3")
+}
+
+// TestServeSubmissionsPagePageClamping tests that pages beyond total are clamped
+func TestServeSubmissionsPagePageClamping(t *testing.T) {
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric:       []*pb.RubricItem{{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"}},
+			IpAddress:    "192.168.1.100",
+			GeoLocation:  "New York, NY, United States",
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	server := NewRubricServer(mockStore)
+
+	// Request page 100 when there are only 5 items (1 page with pageSize=10)
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=100&pageSize=10", http.NoBody)
+	w := httptest.NewRecorder()
+
+	serveSubmissionsPage(w, req, server)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	// With only 1 page, pagination is hidden, but should contain all 5 submissions
+	assert.Contains(t, body, "test-000")
+	assert.Contains(t, body, "test-004")
+	assert.Contains(t, body, "5")
+}
+
+func TestServeSubmissionsPageHTMXTemplateError(t *testing.T) {
+	// Create mock storage with test data
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	// Create server with broken table content template
+	server := NewRubricServer(mockStore)
+	// Replace with broken template
+	server.templates.tableContentTmpl = template.Must(template.New("table").Parse(`{{.NonexistentField}}`))
+
+	// Create HTMX request
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=1&pageSize=10", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+
+	// Execute
+	serveSubmissionsPage(w, req, server)
+
+	// Verify error response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "template execution error")
+}
+
+func TestServeSubmissionsPageFullTemplateError(t *testing.T) {
+	// Create mock storage with test data
+	mockStore := newMockStorage()
+	for i := range 5 {
+		submissionID := fmt.Sprintf("test-%03d", i)
+		result := &pb.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric: []*pb.RubricItem{
+				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			},
+		}
+		mockStore.results[submissionID] = result
+	}
+
+	// Create server with broken submissions template
+	server := NewRubricServer(mockStore)
+	// Replace with broken template
+	server.templates.submissionsTmpl = template.Must(template.New("submissions").Parse(`{{.NonexistentField}}`))
+
+	// Create regular request (not HTMX)
+	req := httptest.NewRequest(http.MethodGet, "/submissions?page=1&pageSize=10", http.NoBody)
+	w := httptest.NewRecorder()
+
+	// Execute
+	serveSubmissionsPage(w, req, server)
+
+	// Verify error response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "template execution error")
 }
