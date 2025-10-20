@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -62,27 +61,18 @@ func (m *mockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.
 	return result, nil
 }
 
-func (m *mockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	// Return a copy to avoid concurrent map writes
-	results := make(map[string]*pb.Result)
-	maps.Copy(results, m.results)
-	return results, nil
-}
-
-func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (map[string]*pb.Result, int, error) {
+func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (results map[string]*pb.Result, totalCount int, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Create sorted list of all submissions
-	var keys []string
+	keys := make([]string, 0, len(m.results))
 	for k := range m.results {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	totalCount := len(keys)
+	totalCount = len(keys)
 
 	// Calculate pagination
 	if params.Page < 1 {
@@ -95,10 +85,7 @@ func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.L
 	startIdx := (params.Page - 1) * params.PageSize
 	endIdx := startIdx + params.PageSize
 	if startIdx >= totalCount && totalCount > 0 {
-		startIdx = totalCount - params.PageSize
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx = max(totalCount-params.PageSize, 0)
 		endIdx = totalCount
 	}
 	if endIdx > totalCount {
@@ -106,7 +93,7 @@ func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.L
 	}
 
 	// Get the requested page
-	results := make(map[string]*pb.Result)
+	results = make(map[string]*pb.Result)
 	for i := startIdx; i < endIdx; i++ {
 		key := keys[i]
 		results[key] = m.results[key]
@@ -878,19 +865,11 @@ func TestServeSubmissionsPageErrorCases(t *testing.T) {
 // errorMockStorage is a mock storage that can be configured to return errors
 type errorMockStorage struct {
 	mockStorage
-	listResultsErr    error
 	listResultsPagErr error
 	loadResultErr     error
 }
 
-func (m *errorMockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
-	if m.listResultsErr != nil {
-		return nil, m.listResultsErr
-	}
-	return m.mockStorage.ListResults(ctx)
-}
-
-func (m *errorMockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (map[string]*pb.Result, int, error) {
+func (m *errorMockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (results map[string]*pb.Result, totalCount int, err error) {
 	if m.listResultsPagErr != nil {
 		return nil, 0, m.listResultsPagErr
 	}
@@ -1227,6 +1206,202 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 
 			// Verify total count
 			assert.Contains(t, body, fmt.Sprintf("%d total", tt.totalSubmissions), "Should show total count")
+		})
+	}
+}
+
+func TestGetPaginationParamsUnit(t *testing.T) {
+	tests := []struct {
+		name         string
+		queryParams  string
+		expectedPage int
+		expectedSize int
+	}{
+		{
+			name:         "default_values",
+			queryParams:  "",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "valid_page",
+			queryParams:  "?page=3",
+			expectedPage: 3,
+			expectedSize: 20,
+		},
+		{
+			name:         "valid_page_size",
+			queryParams:  "?pageSize=50",
+			expectedPage: 1,
+			expectedSize: 50,
+		},
+		{
+			name:         "both_parameters",
+			queryParams:  "?page=2&pageSize=30",
+			expectedPage: 2,
+			expectedSize: 30,
+		},
+		{
+			name:         "invalid_page_non_numeric",
+			queryParams:  "?page=abc",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "zero_page",
+			queryParams:  "?page=0",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "negative_page",
+			queryParams:  "?page=-5",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "page_size_too_large",
+			queryParams:  "?pageSize=150",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "zero_page_size",
+			queryParams:  "?pageSize=0",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "negative_page_size",
+			queryParams:  "?pageSize=-10",
+			expectedPage: 1,
+			expectedSize: 20,
+		},
+		{
+			name:         "max_valid_page_size",
+			queryParams:  "?pageSize=100",
+			expectedPage: 1,
+			expectedSize: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/"+tt.queryParams, http.NoBody)
+			page, pageSize := getPaginationParams(req)
+			assert.Equal(t, tt.expectedPage, page, "page mismatch")
+			assert.Equal(t, tt.expectedSize, pageSize, "pageSize mismatch")
+		})
+	}
+}
+
+func TestExecuteTableContentUnit(t *testing.T) {
+	tests := []struct {
+		name               string
+		data               *SubmissionsPageData
+		expectedContent    []string
+		notExpectedContent []string
+	}{
+		{
+			name: "empty_submissions",
+			data: &SubmissionsPageData{
+				Submissions:      []SubmissionData{},
+				TotalSubmissions: 0,
+			},
+			expectedContent: []string{
+				"<div class=\"table-responsive\">",
+				"<table id=\"submissions-table\"",
+				"<th>Submission ID</th>",
+				"<tbody>",
+				"</tbody>",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "single_submission",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-001",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity/TestCountry",
+						TotalPoints:   100,
+						AwardedPoints: 85,
+						Score:         85.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"<tr>",
+				"test-001",
+				"192.168.1.1",
+				"TestCity/TestCountry",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "high_score_formatting",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-high",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity",
+						TotalPoints:   100,
+						AwardedPoints: 95,
+						Score:         95.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"score-high",
+			},
+			notExpectedContent: []string{},
+		},
+		{
+			name: "low_score_formatting",
+			data: &SubmissionsPageData{
+				Submissions: []SubmissionData{
+					{
+						SubmissionID:  "test-low",
+						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+						IPAddress:     "192.168.1.1",
+						GeoLocation:   "TestCity",
+						TotalPoints:   100,
+						AwardedPoints: 50,
+						Score:         50.0,
+					},
+				},
+				TotalSubmissions: 1,
+			},
+			expectedContent: []string{
+				"score-low",
+			},
+			notExpectedContent: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test server with mock storage
+			mockStore := newMockStorage()
+			server := NewRubricServer(mockStore)
+
+			w := httptest.NewRecorder()
+			err := executeTableContent(w, tt.data, server)
+			assert.NoError(t, err)
+
+			body := w.Body.String()
+			for _, expected := range tt.expectedContent {
+				assert.Contains(t, body, expected, "Expected content not found: %s", expected)
+			}
+			for _, notExpected := range tt.notExpectedContent {
+				assert.NotContains(t, body, notExpected, "Unexpected content found: %s", notExpected)
+			}
 		})
 	}
 }

@@ -29,8 +29,7 @@ type ListResultsParams struct {
 type Storage interface {
 	SaveResult(ctx context.Context, submissionID string, result *proto.Result) error
 	LoadResult(ctx context.Context, submissionID string) (*proto.Result, error)
-	ListResults(ctx context.Context) (map[string]*proto.Result, error)
-	ListResultsPaginated(ctx context.Context, params ListResultsParams) (map[string]*proto.Result, int, error) // Returns results, total count, error
+	ListResultsPaginated(ctx context.Context, params ListResultsParams) (map[string]*proto.Result, int, error)
 }
 
 // Config holds storage configuration
@@ -185,54 +184,65 @@ func (r *R2Storage) LoadResult(ctx context.Context, submissionID string) (*proto
 	return &result, nil
 }
 
-// ListResults loads all rubric result keys from storage (without fetching full content)
-func (r *R2Storage) ListResults(ctx context.Context) (map[string]*proto.Result, error) {
+// ListResultsPaginated loads rubric results with pagination, only fetching the requested page
+func (r *R2Storage) ListResultsPaginated(
+	ctx context.Context,
+	params ListResultsParams,
+) (results map[string]*proto.Result, totalCount int, err error) {
 	start := time.Now()
-	results := make(map[string]*proto.Result)
 
-	// List all object keys with submissions/ prefix
-	paginator := s3.NewListObjectsV2Paginator(r.client, &s3.ListObjectsV2Input{
-		Bucket: &r.bucket,
-		Prefix: aws.String("submissions/"),
-	})
-
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list objects: %w", err)
-		}
-
-		for _, obj := range page.Contents {
-			if obj.Key == nil {
-				continue
-			}
-
-			// Extract submission ID from key (submissions/{id}.json)
-			key := *obj.Key
-			if len(key) < 13 || key[len(key)-5:] != ".json" {
-				continue
-			}
-
-			submissionID := key[12 : len(key)-5] // Remove "submissions/" prefix and ".json" suffix
-
-			// Load the full result
-			result, err := r.LoadResult(ctx, submissionID)
-			if err != nil {
-				slog.Warn("Failed to load result", "submission_id", submissionID, "error", err)
-				continue
-			}
-
-			results[submissionID] = result
-		}
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 || params.PageSize > 1000 {
+		params.PageSize = 20 // Default
 	}
 
-	slog.Info("Listed rubric results",
-		slog.Int("count", len(results)),
+	// Collect all keys from storage
+	allKeys, err := r.collectAllKeys(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	totalCount = len(allKeys)
+
+	// Calculate pagination boundaries
+	startIdx, endIdx := calculatePaginationBounds(params.Page, params.PageSize, totalCount)
+
+	// Fetch results for this page in parallel
+	pageKeys := allKeys[startIdx:endIdx]
+	results = r.loadResultsParallel(ctx, pageKeys)
+
+	slog.Info("Listed paginated rubric results",
+		slog.Int("page", params.Page),
+		slog.Int("page_size", params.PageSize),
+		slog.Int("total_count", totalCount),
+		slog.Int("returned", len(results)),
 		slog.String("bucket", r.bucket),
 		slog.Duration("duration", time.Since(start)),
 	)
 
-	return results, nil
+	return results, totalCount, nil
+}
+
+func calculatePaginationBounds(page, pageSize, totalCount int) (startIdx, endIdx int) {
+	// Handle empty results
+	if totalCount == 0 {
+		return 0, 0
+	}
+
+	startIdx = (page - 1) * pageSize
+	endIdx = startIdx + pageSize
+
+	// If requested page is beyond available pages, clamp to valid range
+	if startIdx >= totalCount {
+		startIdx = max(totalCount-pageSize, 0)
+		endIdx = totalCount
+	} else if endIdx > totalCount {
+		endIdx = totalCount
+	}
+
+	return startIdx, endIdx
 }
 
 // collectAllKeys retrieves all submission object keys from storage
@@ -264,63 +274,6 @@ func (r *R2Storage) collectAllKeys(ctx context.Context) ([]string, error) {
 	}
 
 	return allKeys, nil
-}
-
-// CalculatePaginationBounds computes start and end indices for pagination
-func CalculatePaginationBounds(page, pageSize, totalCount int) (int, int) {
-	startIdx := (page - 1) * pageSize
-	endIdx := startIdx + pageSize
-
-	if startIdx >= totalCount && totalCount > 0 {
-		startIdx = totalCount - pageSize
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		endIdx = totalCount
-	}
-	if endIdx > totalCount {
-		endIdx = totalCount
-	}
-
-	return startIdx, endIdx
-}
-
-// ListResultsPaginated loads rubric results with pagination, only fetching the requested page
-func (r *R2Storage) ListResultsPaginated(ctx context.Context, params ListResultsParams) (map[string]*proto.Result, int, error) {
-	start := time.Now()
-
-	if params.Page < 1 {
-		params.Page = 1
-	}
-	if params.PageSize < 1 || params.PageSize > 1000 {
-		params.PageSize = 20 // Default
-	}
-
-	// Collect all keys from storage
-	allKeys, err := r.collectAllKeys(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	totalCount := len(allKeys)
-
-	// Calculate pagination boundaries
-	startIdx, endIdx := CalculatePaginationBounds(params.Page, params.PageSize, totalCount)
-
-	// Fetch results for this page in parallel
-	pageKeys := allKeys[startIdx:endIdx]
-	results := r.loadResultsParallel(ctx, pageKeys)
-
-	slog.Info("Listed paginated rubric results",
-		slog.Int("page", params.Page),
-		slog.Int("page_size", params.PageSize),
-		slog.Int("total_count", totalCount),
-		slog.Int("returned", len(results)),
-		slog.String("bucket", r.bucket),
-		slog.Duration("duration", time.Since(start)),
-	)
-
-	return results, totalCount, nil
 }
 
 // loadResultsParallel fetches multiple results concurrently using errgroup

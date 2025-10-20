@@ -62,20 +62,10 @@ vet:
 check: fmt vet lint test
 	@echo "All checks completed ✓"
 
-## run-client: Run gradebot in client mode (requires --type flag)
-run-client: build
-	@echo "Usage: make run-client TYPE=project1"
-	@if [ -z "$(TYPE)" ]; then \
-		echo "Error: TYPE parameter is required"; \
-		echo "Example: make run-client TYPE=project1"; \
-		exit 1; \
-	fi
-	@$(BUILD_DIR)/$(BINARY_NAME) check --type $(TYPE)
-
 ## run-server: Run gradebot in server mode
 run-server: build
 	@echo "Starting gradebot server..."
-	@$(BUILD_DIR)/$(BINARY_NAME) -server
+	@$(BUILD_DIR)/$(BINARY_NAME) server
 
 ## docker-build: Build Docker image (if Dockerfile exists)
 docker-build:

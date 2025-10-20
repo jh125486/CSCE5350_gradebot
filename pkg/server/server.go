@@ -25,17 +25,17 @@ import (
 )
 
 const (
-	submissionsTmplFile    = "submissions.go.tmpl"
-	submissionTmplFile     = "submission.go.tmpl"
-	unknownIP              = "unknown"
-	unknownLocation        = "Unknown"
-	localUnknown           = "Local/Unknown"
-	contentTypeHeader      = "Content-Type"
-	templateExecErrMsg     = "template execution error"
-	htmlContentType        = "text/html"
-	xForwardedForHeader    = "X-Forwarded-For"
-	xRealIPHeader          = "X-Real-IP"
-	cfConnectingIPHeader   = "CF-Connecting-IP"
+	submissionsTmplFile  = "submissions.go.tmpl"
+	submissionTmplFile   = "submission.go.tmpl"
+	unknownIP            = "unknown"
+	unknownLocation      = "Unknown"
+	localUnknown         = "Local/Unknown"
+	contentTypeHeader    = "Content-Type"
+	templateExecErrMsg   = "template execution error"
+	htmlContentType      = "text/html"
+	xForwardedForHeader  = "X-Forwarded-For"
+	xRealIPHeader        = "X-Real-IP"
+	cfConnectingIPHeader = "CF-Connecting-IP"
 )
 
 var (
@@ -118,8 +118,9 @@ func extractFromPeer(req IPExtractable) string {
 
 // TemplateManager manages HTML templates
 type TemplateManager struct {
-	submissionsTmpl *template.Template
-	submissionTmpl  *template.Template
+	submissionsTmpl  *template.Template
+	submissionTmpl   *template.Template
+	tableContentTmpl *template.Template
 }
 
 // NewTemplateManager creates a new template manager with loaded templates
@@ -127,11 +128,25 @@ func NewTemplateManager() *TemplateManager {
 	funcMap := template.FuncMap{
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
+		"ge":  func(a, b float64) bool { return a >= b },
 	}
 
 	return &TemplateManager{
-		submissionsTmpl: template.Must(template.New(submissionsTmplFile).Funcs(funcMap).ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile))),
-		submissionTmpl:  template.Must(template.New(submissionTmplFile).Funcs(funcMap).ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile))),
+		submissionsTmpl: template.Must(
+			template.New(submissionsTmplFile).
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile)),
+		),
+		submissionTmpl: template.Must(
+			template.New(submissionTmplFile).
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile)),
+		),
+		tableContentTmpl: template.Must(
+			template.New("table-content.go.tmpl").
+				Funcs(funcMap).
+				ParseFS(templatesFS, filepath.Join("templates", "table-content.go.tmpl")),
+		),
 	}
 }
 
@@ -249,9 +264,9 @@ func Start(ctx context.Context, cfg Config) error {
 }
 
 // parseSubmissionsFromResults converts storage results to submission data
-func parseSubmissionsFromResults(results map[string]*pb.Result) ([]SubmissionData, float64) {
-	submissions := make([]SubmissionData, 0, len(results))
-	var highScore float64
+func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
+	submissions = make([]SubmissionData, 0, len(results))
+	highScore = 0.0
 
 	for _, result := range results {
 		totalPoints := 0.0
@@ -295,18 +310,18 @@ func parseSubmissionsFromResults(results map[string]*pb.Result) ([]SubmissionDat
 }
 
 // getPaginationParams extracts and validates pagination parameters from the request
-func getPaginationParams(r *http.Request) (int, int) {
+func getPaginationParams(r *http.Request) (page, pageSize int) {
 	pageStr := r.URL.Query().Get("page")
 	pageSizeStr := r.URL.Query().Get("pageSize")
 
-	page := 1
+	page = 1
 	if pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 			page = p
 		}
 	}
 
-	pageSize := 20 // Default page size
+	pageSize = 20 // Default page size
 	if pageSizeStr != "" {
 		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
 			pageSize = ps
@@ -316,64 +331,9 @@ func getPaginationParams(r *http.Request) (int, int) {
 	return page, pageSize
 }
 
-// executeTableContent renders just the table content for HTMX partial updates
-func executeTableContent(w http.ResponseWriter, data *SubmissionsPageData) error {
-	// Write table wrapper with Bootstrap classes
-	fmt.Fprint(w, "<div class=\"table-responsive\">\n<table id=\"submissions-table\" class=\"table table-hover\">\n<thead>\n<tr>\n")
-	fmt.Fprint(w, "<th>Submission ID</th>\n<th>Timestamp</th>\n<th>Total Points</th>\n<th>Awarded Points</th>\n<th>Score</th>\n<th>IP Address</th>\n<th>Location</th>\n")
-	fmt.Fprint(w, "</tr>\n</thead>\n<tbody>\n")
-
-	// Write table rows
-	for _, sub := range data.Submissions {
-		scoreClass := "score-low"
-		if sub.Score >= 80.0 {
-			scoreClass = "score-high"
-		} else if sub.Score >= 60.0 {
-			scoreClass = "score-medium"
-		}
-
-		fmt.Fprintf(w, "<tr>\n")
-		fmt.Fprintf(w, "<td><a href=\"/submissions/%s\" class=\"submission-link\"><code class=\"submission-id\">%s</code> 🔗</a></td>\n", sub.SubmissionID, sub.SubmissionID)
-		fmt.Fprintf(w, "<td><small>%s</small></td>\n", sub.Timestamp.Format("2006-01-02 15:04"))
-		fmt.Fprintf(w, "<td>%.1f</td>\n", sub.TotalPoints)
-		fmt.Fprintf(w, "<td>%.1f</td>\n", sub.AwardedPoints)
-		fmt.Fprintf(w, "<td><span class=\"score-badge %s\">%.1f%%</span></td>\n", scoreClass, sub.Score)
-		fmt.Fprintf(w, "<td><code class=\"submission-id\">%s</code></td>\n", sub.IPAddress)
-		fmt.Fprintf(w, "<td><small>%s</small></td>\n", sub.GeoLocation)
-		fmt.Fprintf(w, "</tr>\n")
-	}
-
-	fmt.Fprint(w, "</tbody>\n</table>\n</div>\n")
-
-	// Write pagination controls
-	if data.TotalPages > 1 {
-		fmt.Fprint(w, "<nav aria-label=\"Page navigation\" class=\"mt-4\">\n<ul class=\"pagination justify-content-center\">\n")
-
-		// Previous buttons
-		if data.HasPrevPage {
-			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=1&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">« First</a></li>\n", data.PageSize)
-			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">‹ Previous</a></li>\n", data.CurrentPage-1, data.PageSize)
-		} else {
-			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">« First</span></li>\n")
-			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">‹ Previous</span></li>\n")
-		}
-
-		// Current page info
-		fmt.Fprintf(w, "<li class=\"page-item active\"><span class=\"page-link\">%d / %d</span></li>\n", data.CurrentPage, data.TotalPages)
-
-		// Next buttons
-		if data.HasNextPage {
-			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">Next ›</a></li>\n", data.CurrentPage+1, data.PageSize)
-			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">Last »</a></li>\n", data.TotalPages, data.PageSize)
-		} else {
-			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">Next ›</span></li>\n")
-			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">Last »</span></li>\n")
-		}
-
-		fmt.Fprintf(w, "</ul>\n</nav>\n<div class=\"text-center text-muted small\"><p>Page %d of %d • %d total submissions</p></div>\n", data.CurrentPage, data.TotalPages, data.TotalSubmissions)
-	}
-
-	return nil
+// executeTableContent renders the table content for HTMX partial updates using a template
+func executeTableContent(w http.ResponseWriter, data *SubmissionsPageData, rubricServer *RubricServer) error {
+	return rubricServer.templates.tableContentTmpl.Execute(w, data)
 }
 
 // serveSubmissionsPage serves the HTML page for viewing submissions
@@ -426,7 +386,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 	if r.Header.Get("HX-Request") == "true" {
 		// Return only table content for HTMX
 		w.Header().Set(contentTypeHeader, htmlContentType)
-		if err := executeTableContent(w, &data); err != nil {
+		if err := executeTableContent(w, &data, rubricServer); err != nil {
 			slog.Error("Failed to execute table content", "error", err)
 			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 			return

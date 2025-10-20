@@ -331,13 +331,10 @@
         function initializeDataTable() {
             $('#submissions-table').DataTable({
                 ordering: false,  // Disable sorting - with server-side pagination, sorting only sorts current page
-                searching: true,
+                searching: false,
                 responsive: true,  // Enable responsive - hides columns on narrow viewports
                 autoWidth: false,
                 paging: false,  // Disable DataTables pagination (using HTMX server-side instead)
-                language: {
-                    search: "🔍 Search:"
-                },
                 columnDefs: [
                     {
                         // Submission ID - NEVER hide (always visible)

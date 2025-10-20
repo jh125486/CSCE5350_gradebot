@@ -16,424 +16,29 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
+const (
+	testEndpoint = "https://example.com"
+	testBucket   = "test-bucket"
+)
+
 func skipIfNoEndpoint(t *testing.T) {
+	t.Helper()
 	if os.Getenv("R2_ENDPOINT") == "" {
 		t.Skip("Skipping R2 test: R2_ENDPOINT environment variable not set")
 	}
 }
 
-func TestNewConfig(t *testing.T) {
+func createTestStorage(t *testing.T) *storage.R2Storage {
+	t.Helper()
 	skipIfNoEndpoint(t)
-	t.Parallel()
 
-	tests := []struct {
-		name            string
-		endpoint        string
-		region          string
-		bucket          string
-		accessKeyID     string
-		secretAccessKey string
-		usePathStyle    bool
-		expectedBucket  string
-		expectedRegion  string
-	}{
-		{
-			name:            "full_config",
-			endpoint:        "http://localhost:4566",
-			region:          "us-east-1",
-			bucket:          "test-bucket",
-			accessKeyID:     "test-key",
-			secretAccessKey: "test-secret",
-			usePathStyle:    true,
-			expectedBucket:  "test-bucket",
-			expectedRegion:  "us-east-1",
-		},
-		{
-			name:            "empty_bucket_uses_default",
-			endpoint:        "http://localhost:4566",
-			region:          "us-west-2",
-			bucket:          "",
-			accessKeyID:     "test-key",
-			secretAccessKey: "test-secret",
-			usePathStyle:    false,
-			expectedBucket:  "gradebot-storage",
-			expectedRegion:  "us-west-2",
-		},
-		{
-			name:            "empty_region_uses_default",
-			endpoint:        "https://r2.example.com",
-			region:          "",
-			bucket:          "my-bucket",
-			accessKeyID:     "prod-key",
-			secretAccessKey: "prod-secret",
-			usePathStyle:    false,
-			expectedBucket:  "my-bucket",
-			expectedRegion:  "auto",
-		},
-		{
-			name:            "minimal_config",
-			endpoint:        "",
-			region:          "",
-			bucket:          "",
-			accessKeyID:     "",
-			secretAccessKey: "",
-			usePathStyle:    false,
-			expectedBucket:  "gradebot-storage",
-			expectedRegion:  "auto",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := storage.NewConfig(tt.endpoint, tt.region, tt.bucket, tt.accessKeyID, tt.secretAccessKey, tt.usePathStyle)
-
-			assert.Equal(t, tt.endpoint, cfg.Endpoint)
-			assert.Equal(t, tt.expectedRegion, cfg.Region)
-			assert.Equal(t, tt.expectedBucket, cfg.Bucket)
-			assert.Equal(t, tt.accessKeyID, cfg.AccessKeyID)
-			assert.Equal(t, tt.secretAccessKey, cfg.SecretAccessKey)
-			assert.Equal(t, tt.usePathStyle, cfg.UsePathStyle)
-		})
-	}
-}
-
-func TestNewR2Storage(t *testing.T) {
-	skipIfNoEndpoint(t)
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		cfg       *storage.Config
-		wantError bool
-		errorMsg  string
-	}{
-		{
-			name: "valid_config",
-			cfg: &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          "test-bucket-" + strconv.FormatInt(time.Now().Unix(), 10),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
-			},
-			wantError: false,
-		},
-		{
-			name: "invalid_endpoint",
-			cfg: &storage.Config{
-				Endpoint:        "http://invalid-url:9999",
-				Bucket:          "test-bucket",
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
-			},
-			wantError: true,
-			errorMsg:  "failed to ensure bucket exists",
-		},
-		{
-			name: "virtual_hosted_style",
-			cfg: &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          "test-vhost-" + strconv.FormatInt(time.Now().Unix(), 10),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    false,
-			},
-			// Virtual hosting works with localhost but fails with custom hostnames like 'localstack'
-			wantError: strings.Contains(os.Getenv("R2_ENDPOINT"), "localhost") == false,
-			errorMsg:  "failed to ensure bucket exists",
-		},
-		{
-			name: "empty_credentials",
-			cfg: &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          "test-empty-creds-" + strconv.FormatInt(time.Now().Unix(), 10),
-				AccessKeyID:     "",
-				SecretAccessKey: "",
-				UsePathStyle:    true,
-			},
-			wantError: true, // Empty credentials should fail
-			errorMsg:  "static credentials are empty",
-		},
-		{
-			name: "custom_region",
-			cfg: &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Region:          "eu-west-1",
-				Bucket:          "test-custom-region-" + strconv.FormatInt(time.Now().Unix(), 10),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
-			},
-			wantError: false,
-		},
-		{
-			name: "bucket_already_exists",
-			cfg: &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          "test-existing-bucket-" + strconv.FormatInt(time.Now().Unix(), 10),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
-			},
-			wantError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if tt.name == "valid_config" {
-				skipIfNoEndpoint(t)
-			}
-
-			s, err := storage.NewR2Storage(context.Background(), tt.cfg)
-
-			if tt.wantError {
-				require.Error(t, err)
-				require.Nil(t, s)
-				require.Contains(t, err.Error(), tt.errorMsg)
-			} else {
-				require.NoError(t, err)
-				require.NotNil(t, s)
-
-				// Special case: test bucket already exists path
-				if tt.name == "bucket_already_exists" {
-					// Create another storage instance with the same bucket
-					s2, err2 := storage.NewR2Storage(context.Background(), tt.cfg)
-					require.NoError(t, err2, "Second storage instance with same bucket should succeed")
-					require.NotNil(t, s2)
-				}
-			}
-		})
-	}
-}
-
-func TestR2StorageSaveResult(t *testing.T) {
-	skipIfNoEndpoint(t)
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		submissionID string
-		result       *proto.Result
-		wantError    bool
-		errorMsg     string
-	}{
-		{
-			name:         "valid_result",
-			submissionID: "test-123",
-			result: &proto.Result{
-				SubmissionId: "test-123",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "Code Quality",
-						Note:    "Good structure",
-						Points:  10.0,
-						Awarded: 8.5,
-					},
-				},
-				IpAddress:   "127.0.0.1",
-				GeoLocation: "Local/Unknown",
-			},
-			wantError: false,
-		},
-		{
-			name:         "empty_submission_id",
-			submissionID: "",
-			result: &proto.Result{
-				SubmissionId: "",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{Name: "Test", Points: 5.0, Awarded: 4.0, Note: "OK"},
-				},
-			},
-			wantError: false,
-		},
-		{
-			name:         "nil_result",
-			submissionID: "test-nil",
-			result:       nil,
-			wantError:    false, // Should not panic
-		},
-		{
-			name:         "large_result",
-			submissionID: "test-large",
-			result: func() *proto.Result {
-				rubricItems := make([]*proto.RubricItem, 50)
-				for i := range 50 {
-					rubricItems[i] = &proto.RubricItem{
-						Name:    fmt.Sprintf("Item_%d", i),
-						Note:    fmt.Sprintf("Note for item %d", i),
-						Points:  float64(i + 1),
-						Awarded: float64(i) * 0.8,
-					}
-				}
-				return &proto.Result{
-					SubmissionId: "test-large",
-					Timestamp:    time.Now().Format(time.RFC3339),
-					Rubric:       rubricItems,
-				}
-			}(),
-			wantError: false,
-		},
-		{
-			name:         "result_with_special_characters",
-			submissionID: "test-special-chars",
-			result: &proto.Result{
-				SubmissionId: "test-special-chars",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "Test with Unicode: 测试 🚀 <script>alert('xss')</script>",
-						Note:    "Special chars: \n\t\"quotes\" & 'apostrophes'",
-						Points:  10.0,
-						Awarded: 8.0,
-					},
-				},
-				IpAddress:   "2001:db8::1",
-				GeoLocation: "Test/Unicode-地点",
-			},
-			wantError: false,
-		},
-		{
-			name:         "result_with_all_fields_populated",
-			submissionID: "test-all-fields",
-			result: &proto.Result{
-				SubmissionId: "test-all-fields",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "Comprehensive Test",
-						Note:    "Testing all protobuf fields",
-						Points:  100.0,
-						Awarded: 95.5,
-					},
-				},
-				IpAddress:   "192.168.1.100",
-				GeoLocation: "TestCity/TestCountry",
-			},
-			wantError: false,
-		},
-		{
-			name:         "result_with_zero_values",
-			submissionID: "test-zeros",
-			result: &proto.Result{
-				SubmissionId: "test-zeros",
-				Timestamp:    "",
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "",
-						Note:    "",
-						Points:  0.0,
-						Awarded: 0.0,
-					},
-				},
-				IpAddress:   "",
-				GeoLocation: "",
-			},
-			wantError: false,
-		},
-		{
-			name:         "result_with_negative_values",
-			submissionID: "test-negative",
-			result: &proto.Result{
-				SubmissionId: "test-negative",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "Negative Test",
-						Note:    "Testing negative values",
-						Points:  -10.0,
-						Awarded: -5.5,
-					},
-				},
-			},
-			wantError: false,
-		},
-		{
-			name:         "result_with_extremely_large_data",
-			submissionID: "test-huge-data",
-			result: &proto.Result{
-				SubmissionId: "test-huge-data",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: func() []*proto.RubricItem {
-					// Create a massive rubric with many items
-					items := make([]*proto.RubricItem, 100)
-					for i := range 100 {
-						items[i] = &proto.RubricItem{
-							Name:    fmt.Sprintf("Massive Test Item #%d: %s", i, strings.Repeat("Long name ", 20)),
-							Note:    fmt.Sprintf("Massive note for item %d: %s", i, strings.Repeat("This is a very detailed note that tests large data handling. ", 50)),
-							Points:  float64(i + 1),
-							Awarded: float64(i) * 0.85,
-						}
-					}
-					return items
-				}(),
-				IpAddress:   strings.Repeat("192.168.1.255, ", 100),
-				GeoLocation: strings.Repeat("Country/State/City/District/Street/Building/", 20),
-			},
-			wantError: false,
-		},
-		{
-			name:         "result_with_unicode_edge_cases",
-			submissionID: "test-unicode-edge",
-			result: &proto.Result{
-				SubmissionId: "test-unicode-edge",
-				Timestamp:    time.Now().Format(time.RFC3339),
-				Rubric: []*proto.RubricItem{
-					{
-						Name:    "Unicode Edge Cases: 🚀🌟✨💡🔥⚡🌈🎯 中文测试 العربية русский עברית 🇺🇸🇨🇳🇯🇵",
-						Note:    "Testing various Unicode: \u0000\u0001\u0002 NULL bytes, \uFEFF BOM, \u200B ZWSP",
-						Points:  42.42,
-						Awarded: 39.99,
-					},
-				},
-				IpAddress:   "2001:0db8:85a3:0000:0000:8a2e:0370:7334", // IPv6
-				GeoLocation: "🌍Global/🌎International/🌏Worldwide",
-			},
-			wantError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          strings.ReplaceAll("test-save-"+tt.name+"-"+strconv.FormatInt(time.Now().UnixNano(), 36), "_", "-"),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
-			}
-
-			s, err := storage.NewR2Storage(context.Background(), cfg)
-			require.NoError(t, err)
-
-			err = s.SaveResult(context.Background(), tt.submissionID, tt.result)
-
-			if tt.wantError {
-				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMsg)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestR2StorageLoadResult(t *testing.T) {
-	skipIfNoEndpoint(t)
-	t.Parallel()
+	// Clean test name to create valid bucket name (lowercase, alphanumeric, hyphens only)
+	bucketName := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(t.Name(), "/", "-"), "_", "-"))
+	bucketName = "test-" + bucketName + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 
 	cfg := &storage.Config{
 		Endpoint:        os.Getenv("R2_ENDPOINT"),
-		Bucket:          "test-load-result-" + strconv.FormatInt(time.Now().UnixNano(), 36),
+		Bucket:          bucketName,
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 		UsePathStyle:    true,
@@ -441,483 +46,688 @@ func TestR2StorageLoadResult(t *testing.T) {
 
 	s, err := storage.NewR2Storage(context.Background(), cfg)
 	require.NoError(t, err)
+	require.NotNil(t, s)
 
-	// First, save a test result
-	testResult := &proto.Result{
-		SubmissionId: "saved-test",
-		Timestamp:    time.Now().Format(time.RFC3339),
-		Rubric: []*proto.RubricItem{
-			{
-				Name:    "Test Item",
-				Note:    "Test note",
-				Points:  10.0,
-				Awarded: 8.0,
-			},
-		},
-		IpAddress:   "192.168.1.1",
-		GeoLocation: "Test/Location",
+	return s
+}
+
+// TestNewConfig tests the configuration constructor
+func TestNewConfig(t *testing.T) {
+	type args struct {
+		endpoint        string
+		region          string
+		bucket          string
+		accessKeyID     string
+		secretAccessKey string
+		usePathStyle    bool
 	}
-
-	err = s.SaveResult(context.Background(), testResult.SubmissionId, testResult)
-	require.NoError(t, err)
-
 	tests := []struct {
-		name         string
-		submissionID string
-		wantError    bool
-		errorMsg     string
-		validate     func(t *testing.T, result *proto.Result)
+		name           string
+		args           args
+		expectedRegion string
+		expectedBucket string
 	}{
 		{
-			name:         "existing_result",
-			submissionID: "saved-test",
-			wantError:    false,
-			validate: func(t *testing.T, result *proto.Result) {
-				assert.Equal(t, "saved-test", result.SubmissionId)
-				assert.Len(t, result.Rubric, 1)
-				assert.Equal(t, "Test Item", result.Rubric[0].Name)
-				assert.Equal(t, 8.0, result.Rubric[0].Awarded)
+			name: "valid_config",
+			args: args{
+				endpoint:        testEndpoint,
+				region:          "us-east-1",
+				bucket:          testBucket,
+				accessKeyID:     "key123",
+				secretAccessKey: "secret456",
+				usePathStyle:    true,
 			},
+			expectedRegion: "us-east-1",
+			expectedBucket: testBucket,
 		},
 		{
-			name:         "nonexistent_result",
-			submissionID: "does-not-exist",
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
+			name: "empty_bucket_uses_default",
+			args: args{
+				endpoint:        testEndpoint,
+				region:          "us-west-2",
+				bucket:          "",
+				accessKeyID:     "key123",
+				secretAccessKey: "secret456",
+				usePathStyle:    false,
+			},
+			expectedRegion: "us-west-2",
+			expectedBucket: "gradebot-storage",
 		},
 		{
-			name:         "empty_submission_id",
-			submissionID: "",
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
+			name: "empty_region_uses_default",
+			args: args{
+				endpoint:        testEndpoint,
+				region:          "",
+				bucket:          "my-bucket",
+				accessKeyID:     "key123",
+				secretAccessKey: "secret456",
+				usePathStyle:    false,
+			},
+			expectedRegion: "auto",
+			expectedBucket: "my-bucket",
 		},
 		{
-			name:         "submission_id_with_special_chars",
-			submissionID: "test/with/slashes",
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
-		},
-		{
-			name:         "very_long_submission_id",
-			submissionID: strings.Repeat("a", 300),
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
-		},
-		{
-			name:         "submission_id_with_dots",
-			submissionID: "test.with.dots",
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
-		},
-		{
-			name:         "submission_id_with_spaces",
-			submissionID: "test with spaces",
-			wantError:    true,
-			errorMsg:     "failed to load result from R2",
+			name: "empty_values_use_defaults",
+			args: args{
+				endpoint:        "",
+				region:          "",
+				bucket:          "",
+				accessKeyID:     "",
+				secretAccessKey: "",
+				usePathStyle:    false,
+			},
+			expectedRegion: "auto",
+			expectedBucket: "gradebot-storage",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			cfg := storage.NewConfig(tt.args.endpoint, tt.args.region, tt.args.bucket, tt.args.accessKeyID, tt.args.secretAccessKey, tt.args.usePathStyle)
+			assert.NotNil(t, cfg)
+			assert.Equal(t, tt.args.endpoint, cfg.Endpoint)
+			assert.Equal(t, tt.expectedRegion, cfg.Region)
+			assert.Equal(t, tt.expectedBucket, cfg.Bucket)
+			assert.Equal(t, tt.args.accessKeyID, cfg.AccessKeyID)
+			assert.Equal(t, tt.args.secretAccessKey, cfg.SecretAccessKey)
+			assert.Equal(t, tt.args.usePathStyle, cfg.UsePathStyle)
+		})
+	}
+}
 
-			result, err := s.LoadResult(context.Background(), tt.submissionID)
+// TestNewR2Storage tests storage initialization
+func TestNewR2Storage(t *testing.T) {
+	skipIfNoEndpoint(t)
 
+	type args struct {
+		cfg *storage.Config
+	}
+	tests := []struct {
+		name      string
+		args      args
+		wantError bool
+	}{
+		{
+			name: "valid_config",
+			args: args{
+				cfg: &storage.Config{
+					Endpoint:        os.Getenv("R2_ENDPOINT"),
+					Bucket:          strings.ReplaceAll("test-newstorage-"+strconv.FormatInt(time.Now().UnixNano(), 36), "_", "-"),
+					AccessKeyID:     "test",
+					SecretAccessKey: "test",
+					UsePathStyle:    true,
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "missing_endpoint",
+			args: args{
+				cfg: &storage.Config{
+					Bucket:          testBucket,
+					AccessKeyID:     "test",
+					SecretAccessKey: "test",
+				},
+			},
+			wantError: true,
+		},
+		{
+			name: "empty_credentials",
+			args: args{
+				cfg: &storage.Config{
+					Endpoint:        os.Getenv("R2_ENDPOINT"),
+					Bucket:          strings.ReplaceAll("test-empty-creds-"+strconv.FormatInt(time.Now().UnixNano(), 36), "_", "-"),
+					AccessKeyID:     "",
+					SecretAccessKey: "",
+					UsePathStyle:    true,
+				},
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := storage.NewR2Storage(context.Background(), tt.args.cfg)
 			if tt.wantError {
 				assert.Error(t, err)
+				assert.Nil(t, s)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, s)
+			}
+		})
+	}
+}
+
+// TestSaveResult tests saving results to storage
+func TestSaveResult(t *testing.T) {
+	s := createTestStorage(t)
+	ctx := context.Background()
+
+	type args struct {
+		submissionID string
+		result       *proto.Result
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+		setup   func(t *testing.T)
+		verify  func(t *testing.T)
+	}{
+		{
+			name: "valid_result",
+			args: args{
+				submissionID: "test-001",
+				result: &proto.Result{
+					SubmissionId: "test-001",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*proto.RubricItem{
+						{Name: "Test Item", Points: 10.0, Awarded: 8.0, Note: "Good work"},
+					},
+					IpAddress:   "192.168.1.1",
+					GeoLocation: "Test Location",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty_submission_id",
+			args: args{
+				submissionID: "",
+				result: &proto.Result{
+					SubmissionId: "",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "nil_result",
+			args: args{
+				submissionID: "test-002",
+				result:       nil,
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty_rubric",
+			args: args{
+				submissionID: "test-003",
+				result: &proto.Result{
+					SubmissionId: "test-003",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "large_result",
+			args: args{
+				submissionID: "test-004",
+				result: &proto.Result{
+					SubmissionId: "test-004",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*proto.RubricItem{
+						{Name: "Item 1", Points: 100.0, Awarded: 95.0, Note: strings.Repeat("x", 10000)},
+						{Name: "Item 2", Points: 50.0, Awarded: 45.0, Note: strings.Repeat("y", 10000)},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "overwrite_existing",
+			args: args{
+				submissionID: "overwrite-test",
+				result: &proto.Result{
+					SubmissionId: "overwrite-test",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*proto.RubricItem{
+						{Name: "Second", Points: 20.0, Awarded: 15.0, Note: "Second version"},
+					},
+				},
+			},
+			setup: func(t *testing.T) {
+				firstResult := &proto.Result{
+					SubmissionId: "overwrite-test",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*proto.RubricItem{
+						{Name: "First", Points: 10.0, Awarded: 5.0, Note: "First version"},
+					},
+				}
+				err := s.SaveResult(ctx, "overwrite-test", firstResult)
+				require.NoError(t, err)
+				time.Sleep(100 * time.Millisecond)
+			},
+			verify: func(t *testing.T) {
+				loaded, err := s.LoadResult(ctx, "overwrite-test")
+				require.NoError(t, err)
+				assert.Equal(t, "Second", loaded.Rubric[0].Name)
+				assert.Equal(t, 20.0, loaded.Rubric[0].Points)
+			},
+			wantErr: false,
+		},
+		{
+			name: "special_chars_hyphens",
+			args: args{
+				submissionID: "test-123-abc",
+				result: &proto.Result{
+					SubmissionId: "test-123-abc",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "special_chars_underscores",
+			args: args{
+				submissionID: "test_123_abc",
+				result: &proto.Result{
+					SubmissionId: "test_123_abc",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "special_chars_dots",
+			args: args{
+				submissionID: "test.123.abc",
+				result: &proto.Result{
+					SubmissionId: "test.123.abc",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "long_submission_id",
+			args: args{
+				submissionID: strings.Repeat("a", 200),
+				result: &proto.Result{
+					SubmissionId: strings.Repeat("a", 200),
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "concurrent_saves",
+			args: args{
+				submissionID: "concurrent-1",
+				result: &proto.Result{
+					SubmissionId: "concurrent-1",
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+				},
+			},
+			setup: func(t *testing.T) {
+				done := make(chan bool, 9)
+				errors := make(chan error, 9)
+				for i := 2; i <= 10; i++ {
+					go func(index int) {
+						result := &proto.Result{
+							SubmissionId: fmt.Sprintf("concurrent-%d", index),
+							Timestamp:    time.Now().Format(time.RFC3339),
+							Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+						}
+						if err := s.SaveResult(ctx, fmt.Sprintf("concurrent-%d", index), result); err != nil {
+							errors <- err
+						}
+						done <- true
+					}(i)
+				}
+				for i := 2; i <= 10; i++ {
+					<-done
+				}
+				close(errors)
+				for err := range errors {
+					require.NoError(t, err)
+				}
+			},
+			verify: func(t *testing.T) {
+				params := storage.ListResultsParams{Page: 1, PageSize: 100}
+				results, totalCount, err := s.ListResultsPaginated(ctx, params)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, totalCount, 10)
+				assert.GreaterOrEqual(t, len(results), 10)
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+
+			err := s.SaveResult(ctx, tt.args.submissionID, tt.args.result)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if tt.verify != nil {
+				tt.verify(t)
+			}
+		})
+	}
+}
+
+// TestLoadResult tests loading results from storage
+func TestLoadResult(t *testing.T) {
+	s := createTestStorage(t)
+	ctx := context.Background()
+
+	// Pre-save test results
+	testSubmissionID := "test-load-001"
+	expectedResult := &proto.Result{
+		SubmissionId: testSubmissionID,
+		Timestamp:    time.Now().Format(time.RFC3339),
+		Rubric: []*proto.RubricItem{
+			{Name: "Test Item", Points: 10.0, Awarded: 8.0, Note: "Good"},
+		},
+		IpAddress:   "10.0.0.1",
+		GeoLocation: "Test/Location",
+	}
+	err := s.SaveResult(ctx, testSubmissionID, expectedResult)
+	require.NoError(t, err)
+
+	// Save roundtrip test result
+	roundtripID := "roundtrip-test"
+	roundtripResult := &proto.Result{
+		SubmissionId: roundtripID,
+		Timestamp:    time.Now().Format(time.RFC3339),
+		Rubric: []*proto.RubricItem{
+			{Name: "Correctness", Points: 50.0, Awarded: 45.0, Note: "Almost perfect"},
+			{Name: "Style", Points: 30.0, Awarded: 28.0, Note: "Good formatting"},
+			{Name: "Tests", Points: 20.0, Awarded: 20.0, Note: "Excellent coverage"},
+		},
+		IpAddress:   "203.0.113.42",
+		GeoLocation: "San Francisco, CA, USA",
+	}
+	err = s.SaveResult(ctx, roundtripID, roundtripResult)
+	require.NoError(t, err)
+
+	// Save special character test results
+	specialIDs := []string{"test-123-abc", "test_123_abc", "test.123.abc", strings.Repeat("a", 200)}
+	for _, id := range specialIDs {
+		result := &proto.Result{
+			SubmissionId: id,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+		}
+		err = s.SaveResult(ctx, id, result)
+		require.NoError(t, err)
+	}
+
+	type args struct {
+		submissionID string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		wantErr      bool
+		verifyResult func(t *testing.T, result *proto.Result)
+	}{
+		{
+			name: "existing_result",
+			args: args{
+				submissionID: testSubmissionID,
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, expectedResult.SubmissionId, result.SubmissionId)
+				assert.Equal(t, expectedResult.IpAddress, result.IpAddress)
+				assert.Equal(t, expectedResult.GeoLocation, result.GeoLocation)
+				assert.Len(t, result.Rubric, len(expectedResult.Rubric))
+			},
+		},
+		{
+			name: "non_existent_result",
+			args: args{
+				submissionID: "does-not-exist",
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty_submission_id",
+			args: args{
+				submissionID: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "roundtrip_integrity",
+			args: args{
+				submissionID: roundtripID,
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, roundtripResult.SubmissionId, result.SubmissionId)
+				assert.Equal(t, roundtripResult.Timestamp, result.Timestamp)
+				assert.Equal(t, roundtripResult.IpAddress, result.IpAddress)
+				assert.Equal(t, roundtripResult.GeoLocation, result.GeoLocation)
+				require.Len(t, result.Rubric, len(roundtripResult.Rubric))
+				for i, item := range roundtripResult.Rubric {
+					assert.Equal(t, item.Name, result.Rubric[i].Name)
+					assert.Equal(t, item.Points, result.Rubric[i].Points)
+					assert.Equal(t, item.Awarded, result.Rubric[i].Awarded)
+					assert.Equal(t, item.Note, result.Rubric[i].Note)
+				}
+			},
+		},
+		{
+			name: "special_chars_hyphens",
+			args: args{
+				submissionID: "test-123-abc",
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, "test-123-abc", result.SubmissionId)
+			},
+		},
+		{
+			name: "special_chars_underscores",
+			args: args{
+				submissionID: "test_123_abc",
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, "test_123_abc", result.SubmissionId)
+			},
+		},
+		{
+			name: "special_chars_dots",
+			args: args{
+				submissionID: "test.123.abc",
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, "test.123.abc", result.SubmissionId)
+			},
+		},
+		{
+			name: "long_submission_id",
+			args: args{
+				submissionID: strings.Repeat("a", 200),
+			},
+			wantErr: false,
+			verifyResult: func(t *testing.T, result *proto.Result) {
+				assert.Equal(t, strings.Repeat("a", 200), result.SubmissionId)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := s.LoadResult(ctx, tt.args.submissionID)
+			if tt.wantErr {
+				assert.Error(t, err)
 				assert.Nil(t, result)
-				assert.Contains(t, err.Error(), tt.errorMsg)
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
-				if tt.validate != nil {
-					tt.validate(t, result)
+				if tt.verifyResult != nil {
+					tt.verifyResult(t, result)
 				}
 			}
 		})
 	}
 }
 
-func TestR2StorageListResults(t *testing.T) {
-	skipIfNoEndpoint(t)
-	t.Parallel()
+// TestListResultsPaginated tests paginated listing of results
+func TestListResultsPaginated(t *testing.T) {
+	s := createTestStorage(t)
+	ctx := context.Background()
 
+	// Create 25 test results
+	for i := range 25 {
+		submissionID := fmt.Sprintf("paginated-test-%03d", i)
+		result := &proto.Result{
+			SubmissionId: submissionID,
+			Timestamp:    time.Now().Add(time.Duration(i) * time.Second).Format(time.RFC3339),
+			Rubric: []*proto.RubricItem{
+				{Name: "Item", Points: 100.0, Awarded: float64(50 + i), Note: "Test"},
+			},
+		}
+		err := s.SaveResult(ctx, submissionID, result)
+		require.NoError(t, err)
+	}
+
+	type args struct {
+		page     int
+		pageSize int
+	}
 	tests := []struct {
-		name         string
-		setupFunc    func(context.Context, storage.Storage) error
-		expectedKeys []string
-		minCount     int
-		maxCount     int
+		name             string
+		args             args
+		wantErr          bool
+		expectedCount    int
+		expectedTotalMin int
+		expectedTotalMax int
 	}{
 		{
-			name:         "empty_bucket",
-			setupFunc:    nil,
-			expectedKeys: []string{},
-			minCount:     0,
-			maxCount:     0,
+			name:             "first_page",
+			args:             args{page: 1, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    10,
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "single_result",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				return s.SaveResult(ctx, "single-test", &proto.Result{
-					SubmissionId: "single-test",
-					Timestamp:    time.Now().Format(time.RFC3339),
-					Rubric: []*proto.RubricItem{
-						{Name: "Test", Points: 5.0, Awarded: 4.0},
-					},
-				})
-			},
-			expectedKeys: []string{"single-test"},
-			minCount:     1,
-			maxCount:     1,
+			name:             "middle_page",
+			args:             args{page: 2, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    10,
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "multiple_results",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				results := []string{"multi-test-1", "multi-test-2", "multi-test-3"}
-				for _, id := range results {
-					err := s.SaveResult(ctx, id, &proto.Result{
-						SubmissionId: id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric: []*proto.RubricItem{
-							{Name: "Test", Points: 5.0, Awarded: 4.0},
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: []string{"multi-test-1", "multi-test-2", "multi-test-3"},
-			minCount:     3,
-			maxCount:     3,
+			name:             "last_page_partial",
+			args:             args{page: 3, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    5,
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "results_with_special_characters",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				specialIds := []string{
-					"test-with-unicode-测试",
-					"test-with-emoji-🚀",
-					"test-with-numbers-123456",
-				}
-				for _, id := range specialIds {
-					err := s.SaveResult(ctx, id, &proto.Result{
-						SubmissionId: id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric: []*proto.RubricItem{
-							{Name: "Special Test", Points: 10.0, Awarded: 9.0},
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: []string{"test-with-unicode-测试", "test-with-emoji-🚀", "test-with-numbers-123456"},
-			minCount:     3,
-			maxCount:     3,
+			name:             "page_beyond_range",
+			args:             args{page: 100, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    10, // Should clamp to last page
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "mixed_results_with_empty_rubrics",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				// Save results with different rubric states
-				testCases := []struct {
-					id     string
-					rubric []*proto.RubricItem
-				}{
-					{"empty-rubric", []*proto.RubricItem{}},
-					{"single-item", []*proto.RubricItem{{Name: "Test", Points: 5.0, Awarded: 3.0}}},
-					{"multiple-items", []*proto.RubricItem{
-						{Name: "Test1", Points: 5.0, Awarded: 4.0},
-						{Name: "Test2", Points: 10.0, Awarded: 8.0},
-					}},
-				}
-
-				for _, tc := range testCases {
-					err := s.SaveResult(ctx, tc.id, &proto.Result{
-						SubmissionId: tc.id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric:       tc.rubric,
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: []string{"empty-rubric", "single-item", "multiple-items"},
-			minCount:     3,
-			maxCount:     3,
+			name:             "negative_page",
+			args:             args{page: -1, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    10, // Should default to page 1
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "results_with_edge_case_submission_ids",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				// Test edge cases for submission IDs that might affect key parsing
-				edgeIds := []string{
-					"a",                     // Very short
-					"test-with-dashes",      // Dashes
-					"test_with_underscores", // Underscores
-					"test123numbers",        // Numbers
-					"TestWithCamelCase",     // Mixed case
-				}
-
-				for _, id := range edgeIds {
-					err := s.SaveResult(ctx, id, &proto.Result{
-						SubmissionId: id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric: []*proto.RubricItem{
-							{Name: "Edge Test", Points: 5.0, Awarded: 4.0},
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: []string{"a", "test-with-dashes", "test_with_underscores", "test123numbers", "TestWithCamelCase"},
-			minCount:     5,
-			maxCount:     5,
+			name:             "zero_page",
+			args:             args{page: 0, pageSize: 10},
+			wantErr:          false,
+			expectedCount:    10, // Should default to page 1
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "large_number_of_results",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				// Create many results to test pagination and performance
-				for i := range 25 {
-					id := fmt.Sprintf("bulk-test-%03d", i)
-					err := s.SaveResult(ctx, id, &proto.Result{
-						SubmissionId: id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric: []*proto.RubricItem{
-							{Name: fmt.Sprintf("Bulk Test %d", i), Points: 10.0, Awarded: float64(i % 10)},
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: func() []string {
-				var keys []string
-				for i := range 25 {
-					keys = append(keys, fmt.Sprintf("bulk-test-%03d", i))
-				}
-				return keys
-			}(),
-			minCount: 25,
-			maxCount: 25,
+			name:             "large_page_size",
+			args:             args{page: 1, pageSize: 100},
+			wantErr:          false,
+			expectedCount:    25, // All results
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "results_with_very_short_ids",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				// Test edge cases for very short IDs that might affect key parsing
-				shortIds := []string{"1", "22", "333"}
-
-				for _, id := range shortIds {
-					err := s.SaveResult(ctx, id, &proto.Result{
-						SubmissionId: id,
-						Timestamp:    time.Now().Format(time.RFC3339),
-						Rubric: []*proto.RubricItem{
-							{Name: "Short ID Test", Points: 5.0, Awarded: 4.0},
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			},
-			expectedKeys: []string{"1", "22", "333"},
-			minCount:     3,
-			maxCount:     3,
+			name:             "page_size_one",
+			args:             args{page: 1, pageSize: 1},
+			wantErr:          false,
+			expectedCount:    1,
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 		{
-			name: "results_with_extremely_large_data",
-			setupFunc: func(ctx context.Context, s storage.Storage) error {
-				// Create a result with very large data that might test marshal limits
-				largeNote := strings.Repeat("This is a very long note that tests the marshaling and storage limits. ", 1000)
-				largeName := strings.Repeat("VeryLongTestName", 50)
-
-				err := s.SaveResult(ctx, "large-data-test", &proto.Result{
-					SubmissionId: "large-data-test",
-					Timestamp:    time.Now().Format(time.RFC3339),
-					Rubric: []*proto.RubricItem{
-						{
-							Name:    largeName,
-							Note:    largeNote,
-							Points:  100.0,
-							Awarded: 95.5,
-						},
-					},
-					IpAddress:   strings.Repeat("192.168.1.1, ", 100), // Very long IP list
-					GeoLocation: strings.Repeat("Very/Long/Location/Path/", 50),
-				})
-				return err
-			},
-			expectedKeys: []string{"large-data-test"},
-			minCount:     1,
-			maxCount:     1,
+			name:             "negative_page_size",
+			args:             args{page: 1, pageSize: -5},
+			wantErr:          false,
+			expectedCount:    20, // Should default to 20
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
+		},
+		{
+			name:             "zero_page_size",
+			args:             args{page: 1, pageSize: 0},
+			wantErr:          false,
+			expectedCount:    20, // Should default to 20
+			expectedTotalMin: 25,
+			expectedTotalMax: 25,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Create a unique bucket for each test case
-			cfg := &storage.Config{
-				Endpoint:        os.Getenv("R2_ENDPOINT"),
-				Bucket:          strings.ReplaceAll("test-list-"+tt.name+"-"+strconv.FormatInt(time.Now().UnixNano(), 36), "_", "-"),
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
-				UsePathStyle:    true,
+			params := storage.ListResultsParams{
+				Page:     tt.args.page,
+				PageSize: tt.args.pageSize,
 			}
 
-			s, err := storage.NewR2Storage(context.Background(), cfg)
-			require.NoError(t, err)
+			results, totalCount, err := s.ListResultsPaginated(ctx, params)
 
-			ctx := context.Background()
-
-			if tt.setupFunc != nil {
-				err := tt.setupFunc(ctx, s)
-				require.NoError(t, err)
-			}
-
-			results, err := s.ListResults(ctx)
-			assert.NoError(t, err)
-			assert.NotNil(t, results)
-
-			// Check count is within expected range
-			assert.GreaterOrEqual(t, len(results), tt.minCount)
-			assert.LessOrEqual(t, len(results), tt.maxCount)
-
-			// Check all expected keys are present
-			for _, key := range tt.expectedKeys {
-				assert.Contains(t, results, key)
-				assert.Equal(t, key, results[key].SubmissionId)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, results)
+				assert.Equal(t, tt.expectedCount, len(results), "Expected %d results, got %d", tt.expectedCount, len(results))
+				assert.GreaterOrEqual(t, totalCount, tt.expectedTotalMin)
+				assert.LessOrEqual(t, totalCount, tt.expectedTotalMax)
 			}
 		})
 	}
+
+	// Test empty list with fresh storage
+	t.Run("empty_list", func(t *testing.T) {
+		emptyStorage := createTestStorage(t)
+		params := storage.ListResultsParams{Page: 1, PageSize: 10}
+		results, totalCount, err := emptyStorage.ListResultsPaginated(ctx, params)
+		assert.NoError(t, err)
+		assert.NotNil(t, results)
+		assert.Equal(t, 0, len(results))
+		assert.Equal(t, 0, totalCount)
+	})
 }
-
-func TestCalculatePaginationBounds(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		page      int
-		pageSize  int
-		totalCount int
-		wantStart int
-		wantEnd   int
-	}{
-		{
-			name:       "first_page",
-			page:       1,
-			pageSize:   10,
-			totalCount: 100,
-			wantStart:  0,
-			wantEnd:    10,
-		},
-		{
-			name:       "middle_page",
-			page:       5,
-			pageSize:   10,
-			totalCount: 100,
-			wantStart:  40,
-			wantEnd:    50,
-		},
-		{
-			name:       "last_page_full",
-			page:       10,
-			pageSize:   10,
-			totalCount: 100,
-			wantStart:  90,
-			wantEnd:    100,
-		},
-		{
-			name:       "last_page_partial",
-			page:       11,
-			pageSize:   10,
-			totalCount: 105,
-			wantStart:  100,
-			wantEnd:    105,
-		},
-		{
-			name:       "page_beyond_total",
-			page:       20,
-			pageSize:   10,
-			totalCount: 50,
-			wantStart:  40,
-			wantEnd:    50,
-		},
-		{
-			name:       "empty_results",
-			page:       1,
-			pageSize:   10,
-			totalCount: 0,
-			wantStart:  0,
-			wantEnd:    0,
-		},
-		{
-			name:       "single_item",
-			page:       1,
-			pageSize:   10,
-			totalCount: 1,
-			wantStart:  0,
-			wantEnd:    1,
-		},
-		{
-			name:       "page_size_one",
-			page:       1,
-			pageSize:   1,
-			totalCount: 10,
-			wantStart:  0,
-			wantEnd:    1,
-		},
-		{
-			name:       "page_size_larger_than_total",
-			page:       1,
-			pageSize:   1000,
-			totalCount: 50,
-			wantStart:  0,
-			wantEnd:    50,
-		},
-		{
-			name:       "page_2_small_page_size",
-			page:       2,
-			pageSize:   5,
-			totalCount: 12,
-			wantStart:  5,
-			wantEnd:    10,
-		},
-		{
-			name:       "large_page_size",
-			page:       1,
-			pageSize:   1000,
-			totalCount: 525,
-			wantStart:  0,
-			wantEnd:    525,
-		},
-		{
-			name:       "exactly_at_page_boundary",
-			page:       3,
-			pageSize:   35,
-			totalCount: 105,
-			wantStart:  70,
-			wantEnd:    105,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			start, end := storage.CalculatePaginationBounds(tt.page, tt.pageSize, tt.totalCount)
-			assert.Equal(t, tt.wantStart, start, "Start index mismatch")
-			assert.Equal(t, tt.wantEnd, end, "End index mismatch")
-		})
-	}
-}
-
