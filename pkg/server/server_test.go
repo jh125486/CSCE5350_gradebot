@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -68,6 +69,50 @@ func (m *mockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, e
 	results := make(map[string]*pb.Result)
 	maps.Copy(results, m.results)
 	return results, nil
+}
+
+func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (map[string]*pb.Result, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Create sorted list of all submissions
+	var keys []string
+	for k := range m.results {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	totalCount := len(keys)
+
+	// Calculate pagination
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 {
+		params.PageSize = 20
+	}
+
+	startIdx := (params.Page - 1) * params.PageSize
+	endIdx := startIdx + params.PageSize
+	if startIdx >= totalCount && totalCount > 0 {
+		startIdx = totalCount - params.PageSize
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		endIdx = totalCount
+	}
+	if endIdx > totalCount {
+		endIdx = totalCount
+	}
+
+	// Get the requested page
+	results := make(map[string]*pb.Result)
+	for i := startIdx; i < endIdx; i++ {
+		key := keys[i]
+		results[key] = m.results[key]
+	}
+
+	return results, totalCount, nil
 }
 
 // mockConnectRequest wraps a connect request with mock peer info for testing
@@ -693,7 +738,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			name:               "EmptyResults",
 			setupResults:       map[string]*pb.Result{},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score"},
+			expectedContent:    []string{"Total Submissions", "Highest Score"},
 		},
 		{
 			name: "SingleSubmission",
@@ -735,7 +780,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score", "test-123", "test-456"},
+			expectedContent:    []string{"Total Submissions", "Highest Score", "test-123", "test-456"},
 		},
 		{
 			name: "ZeroTotalPoints",
@@ -751,7 +796,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Average Score", "Highest Score"},
+			expectedContent:    []string{"Total Submissions", "Highest Score"},
 		},
 	}
 
@@ -807,9 +852,9 @@ func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a custom mock storage that returns an error for ListResults
+			// Create a custom mock storage that returns an error for ListResultsPaginated
 			mockStore := &errorMockStorage{
-				listResultsErr: tt.storageError,
+				listResultsPagErr: tt.storageError,
 			}
 			server := newMockRubricServer(mockStore)
 
@@ -833,8 +878,9 @@ func TestServeSubmissionsPage_ErrorCases(t *testing.T) {
 // errorMockStorage is a mock storage that can be configured to return errors
 type errorMockStorage struct {
 	mockStorage
-	listResultsErr error
-	loadResultErr  error
+	listResultsErr    error
+	listResultsPagErr error
+	loadResultErr     error
 }
 
 func (m *errorMockStorage) ListResults(ctx context.Context) (map[string]*pb.Result, error) {
@@ -842,6 +888,13 @@ func (m *errorMockStorage) ListResults(ctx context.Context) (map[string]*pb.Resu
 		return nil, m.listResultsErr
 	}
 	return m.mockStorage.ListResults(ctx)
+}
+
+func (m *errorMockStorage) ListResultsPaginated(ctx context.Context, params storage.ListResultsParams) (map[string]*pb.Result, int, error) {
+	if m.listResultsPagErr != nil {
+		return nil, 0, m.listResultsPagErr
+	}
+	return m.mockStorage.ListResultsPaginated(ctx, params)
 }
 
 func (m *errorMockStorage) LoadResult(ctx context.Context, submissionID string) (*pb.Result, error) {
@@ -1015,6 +1068,165 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 					assert.Contains(t, body, expected, "Error response should contain: %s", expected)
 				}
 			}
+		})
+	}
+}
+
+// TestServeSubmissionsPagePagination verifies that pagination correctly shows all submissions across pages
+func TestServeSubmissionsPagePagination(t *testing.T) {
+	tests := []struct {
+		name               string
+		totalSubmissions   int
+		pageSize           int
+		requestPage        int
+		expectedPageCount  int
+		expectedItemCount  int
+		expectedHasPrev    bool
+		expectedHasNext    bool
+		expectedContent    []string
+		notExpectedContent []string
+	}{
+		{
+			name:               "Page1Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        1,
+			expectedPageCount:  3,
+			expectedItemCount:  15,
+			expectedHasPrev:    false,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", "page-item disabled", "« First"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "Page2Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        2,
+			expectedPageCount:  3,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 2 of 3", "2 / 3", "First", "Previous", "Next", "Last", "hx-get", "hx-target"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "Page3Of3_15ItemsPerPage",
+			totalSubmissions:   35,
+			pageSize:           15,
+			requestPage:        3,
+			expectedPageCount:  3,
+			expectedItemCount:  5,
+			expectedHasPrev:    true,
+			expectedHasNext:    false,
+			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsWithPageSize15",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        1,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    false,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 1 of 35", "1 / 35", "525 total", "Next", "Last", "« First"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsMiddlePage",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        18,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    true,
+			expectedContent:    []string{"Page 18 of 35", "18 / 35", "525 total", "First", "Previous", "Next", "Last"},
+			notExpectedContent: []string{},
+		},
+		{
+			name:               "525SubmissionsLastPage",
+			totalSubmissions:   525,
+			pageSize:           15,
+			requestPage:        35,
+			expectedPageCount:  35,
+			expectedItemCount:  15,
+			expectedHasPrev:    true,
+			expectedHasNext:    false,
+			expectedContent:    []string{"Page 35 of 35", "35 / 35", "525 total", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			notExpectedContent: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test results
+			mockStore := newMockStorage()
+			for i := 0; i < tt.totalSubmissions; i++ {
+				submissionID := fmt.Sprintf("submission-%d", i)
+				result := &pb.Result{
+					SubmissionId: submissionID,
+					Timestamp:    time.Now().Format(time.RFC3339),
+					Rubric: []*pb.RubricItem{
+						{Name: "Item 1", Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
+					},
+					IpAddress:   fmt.Sprintf("192.168.1.%d", i%256),
+					GeoLocation: "Test Location",
+				}
+				err := mockStore.SaveResult(t.Context(), submissionID, result)
+				assert.NoError(t, err)
+			}
+			server := NewRubricServer(mockStore)
+
+			// Create request for specific page and page size
+			url := fmt.Sprintf("/submissions?page=%d&pageSize=%d", tt.requestPage, tt.pageSize)
+			req := httptest.NewRequest(http.MethodGet, url, http.NoBody)
+			rr := httptest.NewRecorder()
+
+			// Call handler
+			serveSubmissionsPage(rr, req, server)
+
+			// Verify status
+			assert.Equal(t, http.StatusOK, rr.Code)
+
+			body := rr.Body.String()
+
+			// Verify page information is in response
+			for _, expected := range tt.expectedContent {
+				assert.Contains(t, body, expected, "Response should contain: %s", expected)
+			}
+
+			// Verify unwanted content is NOT in response
+			for _, notExpected := range tt.notExpectedContent {
+				assert.NotContains(t, body, notExpected, "Response should NOT contain: %s", notExpected)
+			}
+
+			// Count table rows: Extract tbody and count <tr> tags
+			// Find tbody section
+			tbodyStart := strings.Index(body, "<tbody>")
+			tbodyEnd := strings.Index(body, "</tbody>")
+			if tbodyStart > 0 && tbodyEnd > tbodyStart {
+				tbody := body[tbodyStart:tbodyEnd]
+				// Count <tr> tags in tbody (each submission row has one)
+				bodyRows := strings.Count(tbody, "<tr>")
+				assert.Equal(t, tt.expectedItemCount, bodyRows, "Page should have %d submissions", tt.expectedItemCount)
+			} else {
+				t.Fatal("Could not find tbody in response")
+			}
+
+			// Verify pagination controls exist
+			assert.Contains(t, body, "<nav aria-label=\"Page navigation\"", "Should have pagination nav")
+			assert.Contains(t, body, "<ul class=\"pagination", "Should have pagination list")
+
+			// Verify HTMX attributes on pagination links
+			assert.Contains(t, body, "hx-get=", "Pagination should use HTMX")
+			assert.Contains(t, body, "hx-target=\"#page-container\"", "Should target page-container")
+			assert.Contains(t, body, "hx-push-url=\"true\"", "Should update URL")
+
+			// Verify total count
+			assert.Contains(t, body, fmt.Sprintf("%d total", tt.totalSubmissions), "Should show total count")
 		})
 	}
 }

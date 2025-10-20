@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,8 @@ const (
 	unknownIP           = "unknown"
 	unknownLocation     = "Unknown"
 	localUnknown        = "Local/Unknown"
+	contentTypeHeader   = "Content-Type"
+	templateExecErrMsg  = "template execution error"
 )
 
 var (
@@ -86,9 +89,14 @@ type TemplateManager struct {
 
 // NewTemplateManager creates a new template manager with loaded templates
 func NewTemplateManager() *TemplateManager {
+	funcMap := template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+	}
+
 	return &TemplateManager{
-		submissionsTmpl: template.Must(template.New(submissionsTmplFile).ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile))),
-		submissionTmpl:  template.Must(template.New(submissionTmplFile).ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile))),
+		submissionsTmpl: template.Must(template.New(submissionsTmplFile).Funcs(funcMap).ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile))),
+		submissionTmpl:  template.Must(template.New(submissionTmplFile).Funcs(funcMap).ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile))),
 	}
 }
 
@@ -107,6 +115,17 @@ type RubricItemData struct {
 	Points  float64
 	Awarded float64
 	Note    string
+}
+
+type SubmissionsPageData struct {
+	TotalSubmissions int
+	HighScore        float64
+	Submissions      []SubmissionData
+	CurrentPage      int
+	TotalPages       int
+	PageSize         int
+	HasPrevPage      bool
+	HasNextPage      bool
 }
 
 // GradingServer represents a grading server
@@ -163,7 +182,7 @@ func Start(ctx context.Context, cfg Config) error {
 
 	// Health check endpoint for Koyeb and monitoring
 	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(contentTypeHeader, "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"healthy","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`))
 	}))
@@ -194,22 +213,9 @@ func Start(ctx context.Context, cfg Config) error {
 	}
 }
 
-// serveSubmissionsPage serves the HTML page for viewing submissions
-func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
-	ctx := r.Context()
-	results, err := rubricServer.storage.ListResults(ctx)
-	if err != nil {
-		slog.Error("Failed to list results from storage", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Set content type after we know we have valid data
-	w.Header().Set("Content-Type", "text/html")
-
-	// Prepare template data by accessing the storage
+// parseSubmissionsFromResults converts storage results to submission data
+func parseSubmissionsFromResults(results map[string]*pb.Result) ([]SubmissionData, float64) {
 	submissions := make([]SubmissionData, 0, len(results))
-	var totalScore float64
 	var highScore float64
 
 	for _, result := range results {
@@ -229,7 +235,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 		if err != nil {
 			slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
-			timestamp = time.Now() // fallback
+			timestamp = time.Now()
 		}
 
 		submissions = append(submissions, SubmissionData{
@@ -241,35 +247,159 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 			IPAddress:     result.IpAddress,
 			GeoLocation:   result.GeoLocation,
 		})
-		totalScore += score
 		if score > highScore {
 			highScore = score
 		}
 	}
 
-	avgScore := 0.0
-	if len(submissions) > 0 {
-		avgScore = totalScore / float64(len(submissions))
-		sort.Slice(submissions, func(i, j int) bool {
-			return submissions[i].SubmissionID < submissions[j].SubmissionID
-		})
+	sort.Slice(submissions, func(i, j int) bool {
+		return submissions[i].SubmissionID < submissions[j].SubmissionID
+	})
+
+	return submissions, highScore
+}
+
+// getPaginationParams extracts and validates pagination parameters from the request
+func getPaginationParams(r *http.Request) (int, int) {
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("pageSize")
+
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
 	}
 
-	data := struct {
-		TotalSubmissions int
-		AvgScore         float64
-		HighScore        float64
-		Submissions      []SubmissionData
-	}{
-		TotalSubmissions: len(submissions),
-		AvgScore:         avgScore,
+	pageSize := 20 // Default page size
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
+			pageSize = ps
+		}
+	}
+
+	return page, pageSize
+}
+
+// executeTableContent renders just the table content for HTMX partial updates
+func executeTableContent(w http.ResponseWriter, data *SubmissionsPageData) error {
+	// Write table wrapper with Bootstrap classes
+	fmt.Fprint(w, "<div class=\"table-responsive\">\n<table id=\"submissions-table\" class=\"table table-hover\">\n<thead>\n<tr>\n")
+	fmt.Fprint(w, "<th>Submission ID</th>\n<th>Timestamp</th>\n<th>Total Points</th>\n<th>Awarded Points</th>\n<th>Score</th>\n<th>IP Address</th>\n<th>Location</th>\n")
+	fmt.Fprint(w, "</tr>\n</thead>\n<tbody>\n")
+
+	// Write table rows
+	for _, sub := range data.Submissions {
+		scoreClass := "score-low"
+		if sub.Score >= 80.0 {
+			scoreClass = "score-high"
+		} else if sub.Score >= 60.0 {
+			scoreClass = "score-medium"
+		}
+
+		fmt.Fprintf(w, "<tr>\n")
+		fmt.Fprintf(w, "<td><a href=\"/submissions/%s\" class=\"submission-link\"><code class=\"submission-id\">%s</code> 🔗</a></td>\n", sub.SubmissionID, sub.SubmissionID)
+		fmt.Fprintf(w, "<td><small>%s</small></td>\n", sub.Timestamp.Format("2006-01-02 15:04"))
+		fmt.Fprintf(w, "<td>%.1f</td>\n", sub.TotalPoints)
+		fmt.Fprintf(w, "<td>%.1f</td>\n", sub.AwardedPoints)
+		fmt.Fprintf(w, "<td><span class=\"score-badge %s\">%.1f%%</span></td>\n", scoreClass, sub.Score)
+		fmt.Fprintf(w, "<td><code class=\"submission-id\">%s</code></td>\n", sub.IPAddress)
+		fmt.Fprintf(w, "<td><small>%s</small></td>\n", sub.GeoLocation)
+		fmt.Fprintf(w, "</tr>\n")
+	}
+
+	fmt.Fprint(w, "</tbody>\n</table>\n</div>\n")
+
+	// Write pagination controls
+	if data.TotalPages > 1 {
+		fmt.Fprint(w, "<nav aria-label=\"Page navigation\" class=\"mt-4\">\n<ul class=\"pagination justify-content-center\">\n")
+
+		// Previous buttons
+		if data.HasPrevPage {
+			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=1&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">« First</a></li>\n", data.PageSize)
+			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">‹ Previous</a></li>\n", data.CurrentPage-1, data.PageSize)
+		} else {
+			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">« First</span></li>\n")
+			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">‹ Previous</span></li>\n")
+		}
+
+		// Current page info
+		fmt.Fprintf(w, "<li class=\"page-item active\"><span class=\"page-link\">%d / %d</span></li>\n", data.CurrentPage, data.TotalPages)
+
+		// Next buttons
+		if data.HasNextPage {
+			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">Next ›</a></li>\n", data.CurrentPage+1, data.PageSize)
+			fmt.Fprintf(w, "<li class=\"page-item\"><a class=\"page-link\" hx-get=\"?page=%d&pageSize=%d\" hx-target=\"#page-container\" hx-swap=\"innerHTML\" hx-push-url=\"true\" href=\"#\">Last »</a></li>\n", data.TotalPages, data.PageSize)
+		} else {
+			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">Next ›</span></li>\n")
+			fmt.Fprint(w, "<li class=\"page-item disabled\"><span class=\"page-link\">Last »</span></li>\n")
+		}
+
+		fmt.Fprintf(w, "</ul>\n</nav>\n<div class=\"text-center text-muted small\"><p>Page %d of %d • %d total submissions</p></div>\n", data.CurrentPage, data.TotalPages, data.TotalSubmissions)
+	}
+
+	return nil
+}
+
+// serveSubmissionsPage serves the HTML page for viewing submissions
+func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
+	ctx := r.Context()
+
+	// Get pagination parameters
+	page, pageSize := getPaginationParams(r)
+
+	w.Header().Set(contentTypeHeader, "text/html")
+
+	// Fetch paginated results from storage
+	results, totalCount, err := rubricServer.storage.ListResultsPaginated(ctx, storage.ListResultsParams{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		slog.Error("Failed to list paginated results from storage", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse submissions and calculate scores
+	submissions, highScore := parseSubmissionsFromResults(results)
+
+	// Calculate pagination with actual total count from storage
+	totalPages := (totalCount + pageSize - 1) / pageSize
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+
+	data := SubmissionsPageData{
+		TotalSubmissions: totalCount,
 		HighScore:        highScore,
 		Submissions:      submissions,
+		CurrentPage:      page,
+		TotalPages:       totalPages,
+		PageSize:         pageSize,
+		HasPrevPage:      page > 1,
+		HasNextPage:      page < totalPages,
 	}
 
-	slog.Info("Template data", "total_submissions", len(submissions), "submissions_count", len(data.Submissions))
+	slog.Info("Serving submissions page",
+		"total_submissions", totalCount,
+		"page", page,
+		"total_pages", totalPages,
+		"page_submissions", len(submissions))
 
-	// Execute template (already parsed at package initialization)
+	// Check if this is an HTMX request (partial update)
+	if r.Header.Get("HX-Request") == "true" {
+		// Return only table content for HTMX
+		w.Header().Set(contentTypeHeader, "text/html")
+		if err := executeTableContent(w, &data); err != nil {
+			slog.Error("Failed to execute table content", "error", err)
+			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
 		slog.Error("Failed to execute template", "error", err)
 		http.Error(w, "Failed to execute template", http.StatusInternalServerError)
@@ -280,7 +410,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 // serveSubmissionDetailPage serves the HTML page for a specific submission's details
 func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricServer *RubricServer) {
 	// Set content type
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set(contentTypeHeader, "text/html")
 
 	// Extract submission ID from URL path
 	path := strings.TrimPrefix(r.URL.Path, "/submissions/")
