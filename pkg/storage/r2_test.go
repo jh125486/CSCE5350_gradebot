@@ -20,6 +20,9 @@ const (
 	testEndpoint    = "https://example.com"
 	testBucket      = "test-bucket"
 	testIDOverwrite = "overwrite-test"
+	testIDHyphens   = "test-123-abc"
+	testIDDots      = "test.123.abc"
+	testIDPattern   = "concurrent-%d"
 )
 
 func skipIfNoEndpoint(t *testing.T) {
@@ -202,6 +205,45 @@ func TestNewR2Storage(t *testing.T) {
 }
 
 // TestSaveResult tests saving results to storage
+// executeConcurrentSaves performs concurrent save operations for testing
+func executeConcurrentSaves(t *testing.T, s *storage.R2Storage, ctx context.Context, startIndex, endIndex int) {
+	t.Helper()
+	done := make(chan bool, endIndex-startIndex)
+	errors := make(chan error, endIndex-startIndex)
+
+	for i := startIndex; i <= endIndex; i++ {
+		go func(index int) {
+			result := &proto.Result{
+				SubmissionId: fmt.Sprintf(testIDPattern, index),
+				Timestamp:    time.Now().Format(time.RFC3339),
+				Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
+			}
+			if err := s.SaveResult(ctx, fmt.Sprintf(testIDPattern, index), result); err != nil {
+				errors <- err
+			}
+			done <- true
+		}(i)
+	}
+
+	for i := startIndex; i <= endIndex; i++ {
+		<-done
+	}
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+}
+
+// verifyConcurrentSaveResults checks that concurrent saves succeeded
+func verifyConcurrentSaveResults(t *testing.T, s *storage.R2Storage, ctx context.Context, minExpected int) {
+	t.Helper()
+	params := storage.ListResultsParams{Page: 1, PageSize: 100}
+	results, totalCount, err := s.ListResultsPaginated(ctx, params)
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, totalCount, minExpected)
+	assert.GreaterOrEqual(t, len(results), minExpected)
+}
+
 func TestSaveResult(t *testing.T) {
 	s := createTestStorage(t)
 	ctx := context.Background()
@@ -315,9 +357,9 @@ func TestSaveResult(t *testing.T) {
 		{
 			name: "special_chars_hyphens",
 			args: args{
-				submissionID: "test-123-abc",
+				submissionID: testIDHyphens,
 				result: &proto.Result{
-					SubmissionId: "test-123-abc",
+					SubmissionId: testIDHyphens,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
 				},
@@ -339,9 +381,9 @@ func TestSaveResult(t *testing.T) {
 		{
 			name: "special_chars_dots",
 			args: args{
-				submissionID: "test.123.abc",
+				submissionID: testIDDots,
 				result: &proto.Result{
-					SubmissionId: "test.123.abc",
+					SubmissionId: testIDDots,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
 				},
@@ -371,35 +413,10 @@ func TestSaveResult(t *testing.T) {
 				},
 			},
 			setup: func(t *testing.T) {
-				done := make(chan bool, 9)
-				errors := make(chan error, 9)
-				for i := 2; i <= 10; i++ {
-					go func(index int) {
-						result := &proto.Result{
-							SubmissionId: fmt.Sprintf("concurrent-%d", index),
-							Timestamp:    time.Now().Format(time.RFC3339),
-							Rubric:       []*proto.RubricItem{{Name: "Test", Points: 10, Awarded: 8}},
-						}
-						if err := s.SaveResult(ctx, fmt.Sprintf("concurrent-%d", index), result); err != nil {
-							errors <- err
-						}
-						done <- true
-					}(i)
-				}
-				for i := 2; i <= 10; i++ {
-					<-done
-				}
-				close(errors)
-				for err := range errors {
-					require.NoError(t, err)
-				}
+				executeConcurrentSaves(t, s, ctx, 2, 10)
 			},
 			verify: func(t *testing.T) {
-				params := storage.ListResultsParams{Page: 1, PageSize: 100}
-				results, totalCount, err := s.ListResultsPaginated(ctx, params)
-				assert.NoError(t, err)
-				assert.GreaterOrEqual(t, totalCount, 10)
-				assert.GreaterOrEqual(t, len(results), 10)
+				verifyConcurrentSaveResults(t, s, ctx, 10)
 			},
 			wantErr: false,
 		},
@@ -461,7 +478,7 @@ func TestLoadResult(t *testing.T) {
 	require.NoError(t, err)
 
 	// Save special character test results
-	specialIDs := []string{"test-123-abc", "test_123_abc", "test.123.abc", strings.Repeat("a", 200)}
+	specialIDs := []string{testIDHyphens, "test_123_abc", testIDDots, strings.Repeat("a", 200)}
 	for _, id := range specialIDs {
 		result := &proto.Result{
 			SubmissionId: id,
@@ -531,11 +548,11 @@ func TestLoadResult(t *testing.T) {
 		{
 			name: "special_chars_hyphens",
 			args: args{
-				submissionID: "test-123-abc",
+				submissionID: testIDHyphens,
 			},
 			wantErr: false,
 			verifyResult: func(t *testing.T, result *proto.Result) {
-				assert.Equal(t, "test-123-abc", result.SubmissionId)
+				assert.Equal(t, testIDHyphens, result.SubmissionId)
 			},
 		},
 		{
@@ -551,11 +568,11 @@ func TestLoadResult(t *testing.T) {
 		{
 			name: "special_chars_dots",
 			args: args{
-				submissionID: "test.123.abc",
+				submissionID: testIDDots,
 			},
 			wantErr: false,
 			verifyResult: func(t *testing.T, result *proto.Result) {
-				assert.Equal(t, "test.123.abc", result.SubmissionId)
+				assert.Equal(t, testIDDots, result.SubmissionId)
 			},
 		},
 		{

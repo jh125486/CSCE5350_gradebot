@@ -22,6 +22,34 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
+// Test constants for duplicate string literals
+const (
+	testIP1               = "127.0.0.1:12345"
+	testIP2               = "192.168.1.100"
+	testIP3               = "127.0.0.1"
+	testIP4               = "10.0.0.1"
+	testIP5               = "192.168.1.1"
+	testSubmission1       = "test-123"
+	testSubmission2       = "test-456"
+	testSubmission3       = "test-789"
+	testSubmission4       = "test-%03d"
+	testSubmissionInvalid = "test-invalid-timestamp"
+	testSubmissionPct     = "test-%03d"
+	testRubricItem1       = "Item 1"
+	testRubricItem2       = "Item 2"
+	testRubricPath        = "/rubric.RubricService/UploadRubricResult"
+	testSubmissionsPath   = "/submissions"
+	testHighestScore      = "Highest Score"
+	testTotalSubmissions  = "Total Submissions"
+	testLocation1         = "New York, NY, United States"
+	testLocation2         = "Test Location"
+	testNoPoints          = "No points"
+	testResponseContains  = "Response should contain: %s"
+	testPageItemDisabled  = "page-item disabled"
+	testTotal525          = "525 total"
+	testTBodyTag          = "<tbody>"
+)
+
 // mockReviewer implements the openai.Reviewer interface for tests.
 type mockReviewer struct {
 	review *openai.AIReview
@@ -224,31 +252,31 @@ func TestGetClientIP(t *testing.T) {
 		{
 			name:     "RealIPFromContext",
 			headers:  map[string]string{},
-			peerAddr: "127.0.0.1:12345",
-			expected: "192.168.1.100",
+			peerAddr: testIP1,
+			expected: testIP2,
 		},
 		{
 			name:     "XForwardedFor",
 			headers:  map[string]string{"X-Forwarded-For": "192.168.1.101"},
-			peerAddr: "127.0.0.1:12345",
+			peerAddr: testIP1,
 			expected: "192.168.1.101",
 		},
 		{
 			name:     "XForwardedForMultiple",
 			headers:  map[string]string{"X-Forwarded-For": "192.168.1.102, 10.0.0.1"},
-			peerAddr: "127.0.0.1:12345",
+			peerAddr: testIP1,
 			expected: "192.168.1.102",
 		},
 		{
 			name:     "XRealIP",
 			headers:  map[string]string{"X-Real-IP": "192.168.1.103"},
-			peerAddr: "127.0.0.1:12345",
+			peerAddr: testIP1,
 			expected: "192.168.1.103",
 		},
 		{
 			name:     "CFConnectingIP",
 			headers:  map[string]string{"CF-Connecting-IP": "192.168.1.104"},
-			peerAddr: "127.0.0.1:12345",
+			peerAddr: testIP1,
 			expected: "192.168.1.104",
 		},
 		{
@@ -270,7 +298,7 @@ func TestGetClientIP(t *testing.T) {
 			// Create base context - use t.Context() or context.Background() for test setup
 			var ctx context.Context
 			if tt.name == "RealIPFromContext" {
-				ctx = context.WithValue(t.Context(), realIPKey, "192.168.1.100")
+				ctx = context.WithValue(t.Context(), realIPKey, testIP2)
 			} else {
 				ctx = t.Context()
 			}
@@ -327,7 +355,7 @@ func TestGetGeoLocationWithMockClient(t *testing.T) {
 		},
 		{
 			name:     "LocalhostIPv4",
-			ip:       "127.0.0.1",
+			ip:       testIP3,
 			expected: localUnknown,
 		},
 		{
@@ -460,7 +488,7 @@ func TestGeoLocationClientLocalIPs(t *testing.T) {
 		},
 		{
 			name:     "LocalhostIPv4",
-			ip:       "127.0.0.1",
+			ip:       testIP3,
 			expected: localUnknown,
 		},
 		{
@@ -532,9 +560,9 @@ func TestUploadRubricResult(t *testing.T) {
 	}{
 		{
 			name:         "ValidSubmission",
-			submissionID: "test-123",
+			submissionID: testSubmission1,
 			rubric: []*pb.RubricItem{
-				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+				{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 			},
 			expectError: false,
 		},
@@ -542,14 +570,14 @@ func TestUploadRubricResult(t *testing.T) {
 			name:         "EmptySubmissionID",
 			submissionID: "",
 			rubric: []*pb.RubricItem{
-				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+				{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 			},
 			expectError: true,
 			errorCode:   connectgo.CodeInvalidArgument,
 		},
 		{
 			name:         "EmptyRubric",
-			submissionID: "test-456",
+			submissionID: testSubmission2,
 			rubric:       []*pb.RubricItem{},
 			expectError:  false,
 		},
@@ -603,12 +631,12 @@ func TestRealIPMiddleware(t *testing.T) {
 		{
 			name:           "ValidRemoteAddr",
 			requestIP:      "192.168.1.100:8080",
-			expectedRealIP: "192.168.1.100",
+			expectedRealIP: testIP2,
 		},
 		{
 			name:           "Localhost",
 			requestIP:      "127.0.0.1:8080",
-			expectedRealIP: "127.0.0.1",
+			expectedRealIP: testIP3,
 		},
 	}
 
@@ -639,12 +667,12 @@ func TestRequiresAuth(t *testing.T) {
 	}{
 		{
 			name:     "UploadRubricResultRequiresAuth",
-			path:     "/rubric.RubricService/UploadRubricResult",
+			path:     testRubricPath,
 			expected: true,
 		},
 		{
 			name:     "OtherPathsDontRequireAuth",
-			path:     "/submissions",
+			path:     testSubmissionsPath,
 			expected: false,
 		},
 		{
@@ -683,19 +711,19 @@ func TestAuthRubricHandler(t *testing.T) {
 	}{
 		{
 			name:       "UploadPathRequiresAuth",
-			path:       "/rubric.RubricService/UploadRubricResult",
+			path:       testRubricPath,
 			authHeader: "",
 			wantStatus: http.StatusUnauthorized,
 		},
 		{
 			name:       "UploadPathWithValidAuth",
-			path:       "/rubric.RubricService/UploadRubricResult",
+			path:       testRubricPath,
 			authHeader: "Bearer " + token,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "OtherPathsDontRequireAuth",
-			path:       "/submissions",
+			path:       testSubmissionsPath,
 			authHeader: "",
 			wantStatus: http.StatusOK,
 		},
@@ -726,65 +754,65 @@ func TestServeSubmissionsPage(t *testing.T) {
 			name:               "EmptyResults",
 			setupResults:       map[string]*pb.Result{},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Highest Score"},
+			expectedContent:    []string{testTotalSubmissions, testHighestScore},
 		},
 		{
 			name: "SingleSubmission",
 			setupResults: map[string]*pb.Result{
-				"test-123": {
-					SubmissionId: "test-123",
+				testSubmission1: {
+					SubmissionId: testSubmission1,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
-						{Name: "Item 2", Points: 5.0, Awarded: 4.0, Note: "Excellent"},
+						{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
+						{Name: testRubricItem2, Points: 5.0, Awarded: 4.0, Note: "Excellent"},
 					},
-					IpAddress:   "192.168.1.100",
-					GeoLocation: "New York, NY, United States",
+					IpAddress:   testIP2,
+					GeoLocation: testLocation1,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "test-123", "80.0%", "192.168.1.100", "New York, NY, United States"},
+			expectedContent:    []string{testTotalSubmissions, testSubmission1, "80.0%", testIP2, testLocation1},
 		},
 		{
 			name: "MultipleSubmissions",
 			setupResults: map[string]*pb.Result{
-				"test-123": {
-					SubmissionId: "test-123",
+				testSubmission1: {
+					SubmissionId: testSubmission1,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+						{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 					},
-					IpAddress:   "192.168.1.100",
-					GeoLocation: "New York, NY, United States",
+					IpAddress:   testIP2,
+					GeoLocation: testLocation1,
 				},
-				"test-456": {
-					SubmissionId: "test-456",
+				testSubmission2: {
+					SubmissionId: testSubmission2,
 					Timestamp:    time.Now().Add(-time.Hour).Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 20.0, Awarded: 15.0, Note: "Very Good"},
+						{Name: testRubricItem1, Points: 20.0, Awarded: 15.0, Note: "Very Good"},
 					},
-					IpAddress:   "10.0.0.1",
+					IpAddress:   testIP4,
 					GeoLocation: "Los Angeles, CA, United States",
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Highest Score", "test-123", "test-456"},
+			expectedContent:    []string{testTotalSubmissions, testHighestScore, testSubmission1, testSubmission2},
 		},
 		{
 			name: "ZeroTotalPoints",
 			setupResults: map[string]*pb.Result{
-				"test-789": {
-					SubmissionId: "test-789",
+				testSubmission3: {
+					SubmissionId: testSubmission3,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 0.0, Awarded: 0.0, Note: "No points"},
+						{Name: testRubricItem1, Points: 0.0, Awarded: 0.0, Note: testNoPoints},
 					},
-					IpAddress:   "127.0.0.1",
+					IpAddress:   testIP3,
 					GeoLocation: localUnknown,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"Total Submissions", "Highest Score"},
+			expectedContent:    []string{testTotalSubmissions, testHighestScore},
 		},
 	}
 
@@ -799,7 +827,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			server := NewRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
+			req := httptest.NewRequest(http.MethodGet, testSubmissionsPath, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -814,7 +842,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			// Check response body contains expected content
 			body := rr.Body.String()
 			for _, expected := range tt.expectedContent {
-				assert.Contains(t, body, expected, "Response should contain: %s", expected)
+				assert.Contains(t, body, expected, testResponseContains, expected)
 			}
 
 			// Verify it's valid HTML (contains basic HTML structure)
@@ -847,7 +875,7 @@ func TestServeSubmissionsPageErrorCases(t *testing.T) {
 			server := newMockRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
+			req := httptest.NewRequest(http.MethodGet, testSubmissionsPath, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -900,21 +928,21 @@ func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 	// Test case where timestamp parsing fails
 	mockStore := newMockStorage()
 	result := &pb.Result{
-		SubmissionId: "test-invalid-timestamp",
+		SubmissionId: testSubmissionInvalid,
 		Timestamp:    "invalid-timestamp", // This will fail to parse
 		Rubric: []*pb.RubricItem{
-			{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+			{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 		},
-		IpAddress:   "192.168.1.100",
-		GeoLocation: "Test Location",
+		IpAddress:   testIP2,
+		GeoLocation: testLocation2,
 	}
-	err := mockStore.SaveResult(context.Background(), "test-invalid-timestamp", result)
+	err := mockStore.SaveResult(context.Background(), testSubmissionInvalid, result)
 	assert.NoError(t, err)
 
 	server := newMockRubricServer(mockStore)
 
 	// Create a test request
-	req := httptest.NewRequest(http.MethodGet, "/submissions", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, testSubmissionsPath, http.NoBody)
 	rr := httptest.NewRecorder()
 
 	// Call the handler
@@ -925,7 +953,42 @@ func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 
 	// Should contain the submission data
 	body := rr.Body.String()
-	assert.Contains(t, body, "test-invalid-timestamp")
+	assert.Contains(t, body, testSubmissionInvalid)
+}
+
+// setupMockServerWithResults creates a mock server with pre-loaded results
+func setupMockServerWithResults(t *testing.T, results map[string]*pb.Result) *RubricServer {
+	t.Helper()
+	mockStore := newMockStorage()
+	for id, result := range results {
+		err := mockStore.SaveResult(t.Context(), id, result)
+		assert.NoError(t, err)
+	}
+	return NewRubricServer(mockStore)
+}
+
+// executeSubmissionDetailRequest creates and executes a request to the submission detail endpoint
+func executeSubmissionDetailRequest(urlPath string, server *RubricServer) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, urlPath, http.NoBody)
+	rr := httptest.NewRecorder()
+	serveSubmissionDetailPage(rr, req, server)
+	return rr
+}
+
+// verifySubmissionDetailResponse checks the response for expected status and content
+func verifySubmissionDetailResponse(t *testing.T, rr *httptest.ResponseRecorder, expectedStatus int, expectedContent []string) {
+	t.Helper()
+	assert.Equal(t, expectedStatus, rr.Code)
+
+	body := rr.Body.String()
+	if expectedStatus == http.StatusOK {
+		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+		assert.Contains(t, body, "<!DOCTYPE html>")
+	}
+
+	for _, expected := range expectedContent {
+		assert.Contains(t, body, expected, testResponseContains, expected)
+	}
 }
 
 func TestServeSubmissionDetailPage(t *testing.T) {
@@ -945,7 +1008,7 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 		},
 		{
 			name:               "InvalidSubmissionID_Root",
-			urlPath:            "/submissions",
+			urlPath:            testSubmissionsPath,
 			setupResults:       map[string]*pb.Result{},
 			expectedStatusCode: http.StatusBadRequest,
 			expectedContent:    []string{"Invalid submission ID"},
@@ -961,93 +1024,59 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 			name:    "ValidSubmission",
 			urlPath: "/submissions/test-123",
 			setupResults: map[string]*pb.Result{
-				"test-123": {
-					SubmissionId: "test-123",
+				testSubmission1: {
+					SubmissionId: testSubmission1,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good work"},
-						{Name: "Item 2", Points: 5.0, Awarded: 4.0, Note: "Excellent"},
+						{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good work"},
+						{Name: testRubricItem2, Points: 5.0, Awarded: 4.0, Note: "Excellent"},
 					},
-					IpAddress:   "192.168.1.100",
-					GeoLocation: "New York, NY, United States",
+					IpAddress:   testIP2,
+					GeoLocation: testLocation1,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"test-123", "80.0%", "15.0", "12.0", "Item 1", "Item 2", "192.168.1.100", "New York, NY, United States"},
+			expectedContent:    []string{testSubmission1, "80.0%", "15.0", "12.0", testRubricItem1, testRubricItem2, testIP2, testLocation1},
 		},
 		{
 			name:    "ZeroTotalPoints",
 			urlPath: "/submissions/test-456",
 			setupResults: map[string]*pb.Result{
-				"test-456": {
-					SubmissionId: "test-456",
+				testSubmission2: {
+					SubmissionId: testSubmission2,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 0.0, Awarded: 0.0, Note: "No points"},
+						{Name: testRubricItem1, Points: 0.0, Awarded: 0.0, Note: testNoPoints},
 					},
-					IpAddress:   "127.0.0.1",
+					IpAddress:   testIP3,
 					GeoLocation: localUnknown,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"test-456", "0.0%", "0.0", "0.0", "Item 1", "No points"},
+			expectedContent:    []string{testSubmission2, "0.0%", "0.0", "0.0", testRubricItem1, testNoPoints},
 		},
 		{
 			name:    "EmptyRubric",
 			urlPath: "/submissions/test-789",
 			setupResults: map[string]*pb.Result{
-				"test-789": {
-					SubmissionId: "test-789",
+				testSubmission3: {
+					SubmissionId: testSubmission3,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric:       []*pb.RubricItem{},
-					IpAddress:    "10.0.0.1",
-					GeoLocation:  "Test Location",
+					IpAddress:    testIP4,
+					GeoLocation:  testLocation2,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{"test-789", "0.0%", "0.0", "0.0", "10.0.0.1", "Test Location"},
+			expectedContent:    []string{testSubmission3, "0.0%", "0.0", "0.0", testIP4, testLocation2},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a test server with mock storage
-			mockStore := newMockStorage()
-			for id, result := range tt.setupResults {
-				err := mockStore.SaveResult(t.Context(), id, result)
-				assert.NoError(t, err)
-			}
-			server := NewRubricServer(mockStore)
-
-			// Create a test request
-			req := httptest.NewRequest(http.MethodGet, tt.urlPath, http.NoBody)
-			rr := httptest.NewRecorder()
-
-			// Call the handler
-			serveSubmissionDetailPage(rr, req, server)
-
-			// Check status code
-			assert.Equal(t, tt.expectedStatusCode, rr.Code)
-
-			if tt.expectedStatusCode == http.StatusOK {
-				// Check content type
-				assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
-
-				// Check response body contains expected content
-				body := rr.Body.String()
-				for _, expected := range tt.expectedContent {
-					assert.Contains(t, body, expected, "Response should contain: %s", expected)
-				}
-
-				// Verify it's valid HTML
-				assert.Contains(t, body, "<!DOCTYPE html>")
-			} else {
-				// For error cases, check the error message
-				body := rr.Body.String()
-				for _, expected := range tt.expectedContent {
-					assert.Contains(t, body, expected, "Error response should contain: %s", expected)
-				}
-			}
+			server := setupMockServerWithResults(t, tt.setupResults)
+			rr := executeSubmissionDetailRequest(tt.urlPath, server)
+			verifySubmissionDetailResponse(t, rr, tt.expectedStatusCode, tt.expectedContent)
 		})
 	}
 }
@@ -1075,7 +1104,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    false,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", "page-item disabled", "« First"},
+			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", testPageItemDisabled, "« First"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -1099,7 +1128,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  5,
 			expectedHasPrev:    true,
 			expectedHasNext:    false,
-			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", testPageItemDisabled, "Next ›", "Last »"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -1111,7 +1140,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    false,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 1 of 35", "1 / 35", "525 total", "Next", "Last", "« First"},
+			expectedContent:    []string{"Page 1 of 35", "1 / 35", testTotal525, "Next", "Last", "« First"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -1123,7 +1152,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    true,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 18 of 35", "18 / 35", "525 total", "First", "Previous", "Next", "Last"},
+			expectedContent:    []string{"Page 18 of 35", "18 / 35", testTotal525, "First", "Previous", "Next", "Last"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -1135,7 +1164,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    true,
 			expectedHasNext:    false,
-			expectedContent:    []string{"Page 35 of 35", "35 / 35", "525 total", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			expectedContent:    []string{"Page 35 of 35", "35 / 35", testTotal525, "First", "Previous", testPageItemDisabled, "Next ›", "Last »"},
 			notExpectedContent: []string{},
 		},
 	}
@@ -1150,10 +1179,10 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 					SubmissionId: submissionID,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
+						{Name: testRubricItem1, Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
 					},
 					IpAddress:   fmt.Sprintf("192.168.1.%d", i%256),
-					GeoLocation: "Test Location",
+					GeoLocation: testLocation2,
 				}
 				err := mockStore.SaveResult(t.Context(), submissionID, result)
 				assert.NoError(t, err)
@@ -1175,7 +1204,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 
 			// Verify page information is in response
 			for _, expected := range tt.expectedContent {
-				assert.Contains(t, body, expected, "Response should contain: %s", expected)
+				assert.Contains(t, body, expected, testResponseContains, expected)
 			}
 
 			// Verify unwanted content is NOT in response
@@ -1185,7 +1214,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 
 			// Count table rows: Extract tbody and count <tr> tags
 			// Find tbody section
-			tbodyStart := strings.Index(body, "<tbody>")
+			tbodyStart := strings.Index(body, testTBodyTag)
 			tbodyEnd := strings.Index(body, "</tbody>")
 			if tbodyStart > 0 && tbodyEnd > tbodyStart {
 				tbody := body[tbodyStart:tbodyEnd]
@@ -1313,7 +1342,7 @@ func TestExecuteTableContentUnit(t *testing.T) {
 				"<div class=\"table-responsive\">",
 				"<table id=\"submissions-table\"",
 				"<th>Submission ID</th>",
-				"<tbody>",
+				testTBodyTag,
 				"</tbody>",
 			},
 			notExpectedContent: []string{},
@@ -1325,7 +1354,7 @@ func TestExecuteTableContentUnit(t *testing.T) {
 					{
 						SubmissionID:  "test-001",
 						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-						IPAddress:     "192.168.1.1",
+						IPAddress:     testIP5,
 						GeoLocation:   "TestCity/TestCountry",
 						TotalPoints:   100,
 						AwardedPoints: 85,
@@ -1337,7 +1366,7 @@ func TestExecuteTableContentUnit(t *testing.T) {
 			expectedContent: []string{
 				"<tr>",
 				"test-001",
-				"192.168.1.1",
+				testIP5,
 				"TestCity/TestCountry",
 			},
 			notExpectedContent: []string{},
@@ -1349,7 +1378,7 @@ func TestExecuteTableContentUnit(t *testing.T) {
 					{
 						SubmissionID:  "test-high",
 						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-						IPAddress:     "192.168.1.1",
+						IPAddress:     testIP5,
 						GeoLocation:   "TestCity",
 						TotalPoints:   100,
 						AwardedPoints: 95,
@@ -1370,7 +1399,7 @@ func TestExecuteTableContentUnit(t *testing.T) {
 					{
 						SubmissionID:  "test-low",
 						Timestamp:     time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-						IPAddress:     "192.168.1.1",
+						IPAddress:     testIP5,
 						GeoLocation:   "TestCity",
 						TotalPoints:   100,
 						AwardedPoints: 50,
@@ -1412,15 +1441,15 @@ func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
 	// Create test results
 	mockStore := newMockStorage()
 	for i := range 25 {
-		submissionID := fmt.Sprintf("test-%03d", i)
+		submissionID := fmt.Sprintf(testSubmission4, i)
 		result := &pb.Result{
 			SubmissionId: submissionID,
 			Timestamp:    time.Now().Format(time.RFC3339),
 			Rubric: []*pb.RubricItem{
-				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+				{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 			},
-			IpAddress:   "192.168.1.100",
-			GeoLocation: "New York, NY, United States",
+			IpAddress:   testIP2,
+			GeoLocation: testLocation1,
 		}
 		mockStore.results[submissionID] = result
 	}
@@ -1445,7 +1474,7 @@ func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
 
 	// Should contain table content
 	assert.Contains(t, body, "<table")
-	assert.Contains(t, body, "<tbody>")
+	assert.Contains(t, body, testTBodyTag)
 
 	// Should contain pagination for page 2
 	assert.Contains(t, body, "Page 2 of 3")
@@ -1455,13 +1484,13 @@ func TestServeSubmissionsPageHTMXRequest(t *testing.T) {
 func TestServeSubmissionsPagePageClamping(t *testing.T) {
 	mockStore := newMockStorage()
 	for i := range 5 {
-		submissionID := fmt.Sprintf("test-%03d", i)
+		submissionID := fmt.Sprintf(testSubmission4, i)
 		result := &pb.Result{
 			SubmissionId: submissionID,
 			Timestamp:    time.Now().Format(time.RFC3339),
-			Rubric:       []*pb.RubricItem{{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"}},
-			IpAddress:    "192.168.1.100",
-			GeoLocation:  "New York, NY, United States",
+			Rubric:       []*pb.RubricItem{{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"}},
+			IpAddress:    testIP2,
+			GeoLocation:  testLocation1,
 		}
 		mockStore.results[submissionID] = result
 	}
@@ -1487,12 +1516,12 @@ func TestServeSubmissionsPageHTMXTemplateError(t *testing.T) {
 	// Create mock storage with test data
 	mockStore := newMockStorage()
 	for i := range 5 {
-		submissionID := fmt.Sprintf("test-%03d", i)
+		submissionID := fmt.Sprintf(testSubmission4, i)
 		result := &pb.Result{
 			SubmissionId: submissionID,
 			Timestamp:    time.Now().Format(time.RFC3339),
 			Rubric: []*pb.RubricItem{
-				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+				{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 			},
 		}
 		mockStore.results[submissionID] = result
@@ -1520,12 +1549,12 @@ func TestServeSubmissionsPageFullTemplateError(t *testing.T) {
 	// Create mock storage with test data
 	mockStore := newMockStorage()
 	for i := range 5 {
-		submissionID := fmt.Sprintf("test-%03d", i)
+		submissionID := fmt.Sprintf(testSubmission4, i)
 		result := &pb.Result{
 			SubmissionId: submissionID,
 			Timestamp:    time.Now().Format(time.RFC3339),
 			Rubric: []*pb.RubricItem{
-				{Name: "Item 1", Points: 10.0, Awarded: 8.0, Note: "Good"},
+				{Name: testRubricItem1, Points: 10.0, Awarded: 8.0, Note: "Good"},
 			},
 		}
 		mockStore.results[submissionID] = result

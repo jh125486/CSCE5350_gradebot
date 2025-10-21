@@ -28,6 +28,89 @@ func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
 	return f.Filesystem.Chroot(path)
 }
 
+// setupGitRepoWithCommit creates a git repo with an initial commit
+//
+//nolint:ireturn // billy.Filesystem is not an interface we can change
+func setupGitRepoWithCommit(t *testing.T) billy.Filesystem {
+	t.Helper()
+	fs := memfs.New()
+	dot, err := fs.Chroot(".git")
+	if err != nil {
+		t.Fatalf("chroot: %v", err)
+	}
+	st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+	repo, err := git.Init(st, fs)
+	if err != nil {
+		t.Fatalf("init repo: %v", err)
+	}
+	f, err := fs.Create("README.md")
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	_, _ = f.Write([]byte("hello"))
+	_ = f.Close()
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	if _, err := wt.Add("README.md"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	_, err = wt.Commit("initial", &git.CommitOptions{Author: &object.Signature{Name: "t", Email: "t@e.com"}})
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	return fs
+}
+
+// setupEmptyGitRepo creates a git repo without commits
+//
+//nolint:ireturn // billy.Filesystem is not an interface we can change
+func setupEmptyGitRepo(t *testing.T) billy.Filesystem {
+	t.Helper()
+	fs := memfs.New()
+	dot, err := fs.Chroot(".git")
+	if err != nil {
+		t.Fatalf("chroot: %v", err)
+	}
+	st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+	_, err = git.Init(st, fs)
+	if err != nil {
+		t.Fatalf("init repo: %v", err)
+	}
+	return fs
+}
+
+// setupInvalidGitDir creates a .git directory without proper git structure
+//
+//nolint:ireturn // billy.Filesystem is not an interface we can change
+func setupInvalidGitDir(t *testing.T) billy.Filesystem {
+	t.Helper()
+	fs := memfs.New()
+	err := fs.MkdirAll(".git", 0o755)
+	if err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	return fs
+}
+
+// verifyGitEvaluation checks the evaluation result matches expectations
+func verifyGitEvaluation(t *testing.T, item r.RubricItem, wantPoints float64, wantNoteContains string) {
+	t.Helper()
+	if wantPoints == 5 {
+		if item.Note == "" {
+			t.Fatalf("expected non-empty note from git evaluator")
+		}
+	} else {
+		if item.Awarded != wantPoints {
+			t.Fatalf("expected %v points, got %v", wantPoints, item.Awarded)
+		}
+		if !strings.Contains(item.Note, wantNoteContains) {
+			t.Fatalf("expected note to contain '%s', got %s", wantNoteContains, item.Note)
+		}
+	}
+}
+
 func TestEvaluateGit(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -36,80 +119,26 @@ func TestEvaluateGit(t *testing.T) {
 		wantNoteContains string
 	}{
 		{
-			name: "ReportsHead",
-			setupFS: func() billy.Filesystem {
-				fs := memfs.New()
-				// create .git storage
-				dot, err := fs.Chroot(".git")
-				if err != nil {
-					t.Fatalf("chroot: %v", err)
-				}
-				st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
-				repo, err := git.Init(st, fs)
-				if err != nil {
-					t.Fatalf("init repo: %v", err)
-				}
-				f, err := fs.Create("README.md")
-				if err != nil {
-					t.Fatalf("create file: %v", err)
-				}
-				_, _ = f.Write([]byte("hello"))
-				_ = f.Close()
-				wt, err := repo.Worktree()
-				if err != nil {
-					t.Fatalf("worktree: %v", err)
-				}
-				if _, err := wt.Add("README.md"); err != nil {
-					t.Fatalf("add: %v", err)
-				}
-				_, err = wt.Commit("initial", &git.CommitOptions{Author: &object.Signature{Name: "t", Email: "t@e.com"}})
-				if err != nil {
-					t.Fatalf("commit: %v", err)
-				}
-				return fs
-			},
+			name:             "ReportsHead",
+			setupFS:          func() billy.Filesystem { return setupGitRepoWithCommit(t) },
 			wantPoints:       5,
 			wantNoteContains: "",
 		},
 		{
-			name: "OpenFails",
-			setupFS: func() billy.Filesystem {
-				return &failingChrootFS{Filesystem: memfs.New()}
-			},
+			name:             "OpenFails",
+			setupFS:          func() billy.Filesystem { return &failingChrootFS{Filesystem: memfs.New()} },
 			wantPoints:       0,
 			wantNoteContains: "failed to access .git directory",
 		},
 		{
-			name: "GitRepoOpenFails",
-			setupFS: func() billy.Filesystem {
-				fs := memfs.New()
-				// Create .git directory but with invalid/empty git structure
-				err := fs.MkdirAll(".git", 0o755)
-				if err != nil {
-					t.Fatalf("mkdir .git: %v", err)
-				}
-				return fs
-			},
+			name:             "GitRepoOpenFails",
+			setupFS:          func() billy.Filesystem { return setupInvalidGitDir(t) },
 			wantPoints:       0,
 			wantNoteContains: "failed to open git repo",
 		},
 		{
-			name: "HeadFails",
-			setupFS: func() billy.Filesystem {
-				fs := memfs.New()
-				// create .git storage but no commits
-				dot, err := fs.Chroot(".git")
-				if err != nil {
-					t.Fatalf("chroot: %v", err)
-				}
-				st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
-				_, err = git.Init(st, fs)
-				if err != nil {
-					t.Fatalf("init repo: %v", err)
-				}
-				// No commit, so HEAD should fail
-				return fs
-			},
+			name:             "HeadFails",
+			setupFS:          func() billy.Filesystem { return setupEmptyGitRepo(t) },
 			wantPoints:       0,
 			wantNoteContains: "failed to get HEAD",
 		},
@@ -120,19 +149,7 @@ func TestEvaluateGit(t *testing.T) {
 			fs := tt.setupFS()
 			eval := r.EvaluateGit(fs)
 			item := eval(nil, nil, nil)
-
-			if tt.wantPoints == 5 {
-				if item.Note == "" {
-					t.Fatalf("expected non-empty note from git evaluator")
-				}
-			} else {
-				if item.Awarded != tt.wantPoints {
-					t.Fatalf("expected %v points, got %v", tt.wantPoints, item.Awarded)
-				}
-				if !strings.Contains(item.Note, tt.wantNoteContains) {
-					t.Fatalf("expected note to contain '%s', got %s", tt.wantNoteContains, item.Note)
-				}
-			}
+			verifyGitEvaluation(t, item, tt.wantPoints, tt.wantNoteContains)
 		})
 	}
 }
