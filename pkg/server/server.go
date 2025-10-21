@@ -111,7 +111,6 @@ func extractFromPeer(req IPExtractable) string {
 		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
 			return ip
 		}
-		return peer.Addr
 	}
 	return unknownIP
 }

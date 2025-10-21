@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,135 +86,150 @@ func (p *Program) SetStdinWriterFactory(factory func() (io.Reader, io.WriteClose
 func (p *Program) Path() string { return p.WorkDir }
 
 // Run starts the program with the given arguments
-func (p *Program) Run(args ...string) error {
-	d, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := os.Chdir(d); err != nil {
-			log.Printf("Failed to change directory back: %v", err)
-		}
-	}()
-	if err := os.Chdir(p.WorkDir); err != nil {
-		return err
-	}
-
-	// Determine command name and args. Prefer explicit args passed to Run,
-	// otherwise fall back to the configured RunCmd slice. If neither is
-	// provided, there's nothing to run.
-	var cmdName string
-	var cmdArgs []string
-
-	// If a RunCmd was configured, use its first token as the command name and
-	// its remaining tokens as default args.
-	if len(p.RunCmd) > 0 {
-		cmdName = p.RunCmd[0]
-		if len(p.RunCmd) > 1 {
-			cmdArgs = p.RunCmd[1:]
-		}
-	}
-
-	// If explicit args were provided to Run, use them as the arguments. If no
-	// command name has been determined yet, treat the first explicit arg as
-	// the command name.
-	if len(args) > 0 {
-		if cmdName == "" {
-			cmdName = args[0]
-			if len(args) > 1 {
-				cmdArgs = args[1:]
-			}
-		} else {
-			cmdArgs = args
-		}
-	}
-
+func (p *Program) Run(args ...string) (err error) {
+	cmdName, cmdArgs := p.resolveCommand(args)
 	if cmdName == "" {
 		return fmt.Errorf("no run command configured")
 	}
 
-	// If we don't have a factory, we can't create a command. Return nil to
-	// allow callers that don't require a process to continue (e.g., when
-	// RunCmd is intentionally empty).
+	restore, err := p.changeToWorkDir()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if restoreErr := restore(); restoreErr != nil {
+			err = restoreErr
+		}
+	}()
+
+	err = p.startCommand(cmdName, cmdArgs)
+
+	return err
+}
+
+func (p *Program) changeToWorkDir() (func() error, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		panic(fmt.Sprintf("failed to determine working directory: %v", err))
+	}
+
+	if err := os.Chdir(p.WorkDir); err != nil {
+		return nil, err
+	}
+
+	return func() error {
+		return os.Chdir(currentDir)
+	}, nil
+}
+
+func (p *Program) resolveCommand(args []string) (cmdName string, cmdArgs []string) {
+	switch {
+	case len(args) == 0 && len(p.RunCmd) == 0:
+		return "", nil
+	case len(args) == 0:
+		return p.RunCmd[0], copyArgs(p.RunCmd[1:])
+	case len(p.RunCmd) == 0:
+		return args[0], copyArgs(args[1:])
+	default:
+		return p.RunCmd[0], copyArgs(args)
+	}
+}
+
+func (p *Program) startCommand(cmdName string, cmdArgs []string) error {
 	if p.cmdFactory == nil {
 		return nil
 	}
 
-	// Wire up the command and arguments
 	p.cmd = p.cmdFactory.New(cmdName, cmdArgs...)
 	p.cmd.SetDir(p.WorkDir)
-	// Use the injected stdin writer factory for testability
+
 	stdinR, stdinW := p.stdinWriterFactory()
 	p.stdinW = stdinW
 	p.cmd.SetStdin(stdinR)
-	// SafeBuffer provides thread-safe writes from command goroutines
 	p.cmd.SetStdout(&p.out)
 	p.cmd.SetStderr(&p.errOut)
 
-	// Start the command so callers can interact with it via Do(). If the
-	// command implementation only supports Run (blocking), Run should still
-	// be available; prefer Start when present.
-	if err := p.cmd.Start(); err != nil {
-		return err
-	}
-	return nil
+	return p.cmd.Start()
 }
 
 // Do sends input to the running program and returns captured output
 func (p *Program) Do(in string) (stdout, stderr []string, err error) {
-	// Mirror input into buffer for test visibility
-	p.in.Reset()
-	p.in.WriteString(in)
+	p.captureInput(in)
 
-	// If we have a running process, write the input (with newline) to stdin
-	if p.stdinW != nil {
-		if _, err := p.stdinW.Write([]byte(in + "\n")); err != nil {
-			return nil, nil, err
-		}
+	if err := p.sendToStdin(in); err != nil {
+		return nil, nil, err
 	}
 
-	// Capture only new output since this call began
 	prevOutLen := p.out.Len()
 	prevErrLen := p.errOut.Len()
 
-	// Only poll if we have a running process, otherwise return immediately
-	if p.stdinW != nil {
-		// Wait briefly for the program to produce output
-		// We poll for growth for up to ~750ms
-		deadline := time.Now().Add(750 * time.Millisecond)
-		for time.Now().Before(deadline) {
-			outLen := p.out.Len()
-			errLen := p.errOut.Len()
-			if outLen > prevOutLen || errLen > prevErrLen {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
+	p.waitForOutput(prevOutLen, prevErrLen)
+
+	outStr, errStr := p.latestOutput(prevOutLen, prevErrLen)
+	return splitLines(outStr), splitLines(errStr), nil
+}
+
+func (p *Program) captureInput(in string) {
+	p.in.Reset()
+	p.in.WriteString(in)
+}
+
+func (p *Program) sendToStdin(in string) error {
+	if p.stdinW == nil {
+		return nil
+	}
+	_, err := p.stdinW.Write([]byte(in + "\n"))
+	return err
+}
+
+func (p *Program) waitForOutput(prevOutLen, prevErrLen int) {
+	if p.stdinW == nil {
+		return
+	}
+
+	deadline := time.Now().Add(750 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if p.out.Len() > prevOutLen || p.errOut.Len() > prevErrLen {
+			break
 		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (p *Program) latestOutput(prevOutLen, prevErrLen int) (stdout, stderr string) {
+	stdout = p.out.String()
+	if prevOutLen < len(stdout) {
+		stdout = stdout[prevOutLen:]
+	} else {
+		stdout = ""
 	}
 
-	outStr := p.out.String()
-	errStr := p.errOut.String()
-	if prevOutLen < len(outStr) {
-		outStr = outStr[prevOutLen:]
+	stderr = p.errOut.String()
+	if prevErrLen < len(stderr) {
+		stderr = stderr[prevErrLen:]
 	} else {
-		outStr = ""
-	}
-	if prevErrLen < len(errStr) {
-		errStr = errStr[prevErrLen:]
-	} else {
-		errStr = ""
+		stderr = ""
 	}
 
-	var outLines, errLines []string
-	scanner := bufio.NewScanner(strings.NewReader(outStr))
+	return stdout, stderr
+}
+
+func splitLines(s string) []string {
+	var lines []string
+	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
-		outLines = append(outLines, scanner.Text())
+		lines = append(lines, scanner.Text())
 	}
-	scanner = bufio.NewScanner(strings.NewReader(errStr))
-	for scanner.Scan() {
-		errLines = append(errLines, scanner.Text())
+	return lines
+}
+
+func copyArgs(src []string) []string {
+	if len(src) == 0 {
+		return nil
 	}
-	return outLines, errLines, nil
+	dst := make([]string, len(src))
+	copy(dst, src)
+	return dst
 }
 
 // Kill terminates the running program process
