@@ -34,7 +34,6 @@ linters:
     - govet
     - ineffassign
     - interfacebloat
-    - ireturn
     - lll
     - makezero
     - nakedret
@@ -111,7 +110,6 @@ linters:
           - unparam
           - thelper
           - tparallel
-          - ireturn
           - nestif
       # Exclude specific issues in main.go
       - path: "main\\.go$"

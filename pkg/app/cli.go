@@ -14,6 +14,7 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/client"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/server"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
@@ -58,6 +59,9 @@ type (
 		Client *http.Client `kong:"-"`
 		Stdin  io.Reader    `kong:"-"` // For testing - can inject stdin for prompts
 		Stdout io.Writer    `kong:"-"` // For testing - can capture output
+
+		// CommandFactory creates commands for execution. Can be injected in tests.
+		CommandFactory rubrics.CommandFactory `kong:"-"`
 	}
 )
 
@@ -142,13 +146,14 @@ func (cmd *ServerCmd) AfterRun() error {
 // Run executes the Project 1 grading client.
 func (cmd *Project1Cmd) Run(ctx Context) error {
 	cfg := &client.Config{
-		ServerURL:     cmd.ServerURL,
-		Dir:           cmd.Dir,
-		RunCmd:        cmd.RunCmd,
-		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-		Reader:        cmd.Stdin,
-		Writer:        cmd.Stdout,
+		ServerURL:      cmd.ServerURL,
+		Dir:            cmd.Dir,
+		RunCmd:         cmd.RunCmd,
+		QualityClient:  protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
+		RubricClient:   protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
+		Reader:         cmd.Stdin,
+		Writer:         cmd.Stdout,
+		CommandFactory: cmd.CommandFactory,
 	}
 
 	return client.ExecuteProject1(ctx, cfg)
@@ -157,13 +162,14 @@ func (cmd *Project1Cmd) Run(ctx Context) error {
 // Run executes the Project 2 grading client.
 func (cmd *Project2Cmd) Run(ctx Context) error {
 	cfg := &client.Config{
-		ServerURL:     cmd.ServerURL,
-		Dir:           cmd.Dir,
-		RunCmd:        cmd.RunCmd,
-		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-		Reader:        cmd.Stdin,
-		Writer:        cmd.Stdout,
+		ServerURL:      cmd.ServerURL,
+		Dir:            cmd.Dir,
+		RunCmd:         cmd.RunCmd,
+		QualityClient:  protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
+		RubricClient:   protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
+		Reader:         cmd.Stdin,
+		Writer:         cmd.Stdout,
+		CommandFactory: cmd.CommandFactory,
 	}
 
 	return client.ExecuteProject2(ctx, cfg)

@@ -106,6 +106,10 @@ type Config struct {
 
 	// Reader is where to read user input from. If nil, defaults to os.Stdin
 	Reader io.Reader
+
+	// CommandFactory creates commands for execution. If nil, uses ExecCommandFactory.
+	// This allows tests to inject mock implementations.
+	CommandFactory rubrics.CommandFactory
 }
 
 // AuthTransport injects an Authorization header for every outgoing request.
@@ -232,8 +236,10 @@ func ExecuteProject2(ctx context.Context, cfg *Config) error {
 }
 
 func executeProject(ctx context.Context, cfg *Config, name string, items ...rubrics.Evaluator) error {
-	factory := &rubrics.ExecCommandFactory{Context: ctx}
-	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, factory)
+	if cfg.CommandFactory == nil {
+		cfg.CommandFactory = &rubrics.ExecCommandFactory{Context: ctx}
+	}
+	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, cfg.CommandFactory)
 	defer func() {
 		if err := program.Kill(); err != nil {
 			contextlog.From(ctx).Error("failed to kill program", slog.Any("error", err))

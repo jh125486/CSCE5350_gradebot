@@ -72,10 +72,7 @@ type ExecCommandFactory struct {
 }
 
 // New creates a new execCmd wrapper.
-func (f *ExecCommandFactory) New( //nolint:ireturn // we want to return the interface
-	name string,
-	arg ...string,
-) Commander {
+func (f *ExecCommandFactory) New(name string, arg ...string) Commander {
 	return &execCmd{Cmd: exec.CommandContext(f.Context, name, arg...)}
 }
 
