@@ -38,7 +38,9 @@ func NewSQLStorage(ctx context.Context, databaseURL string) (*SQLStorage, error)
 
 	// Verify connection
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			slog.Error("failed to close database after ping error", "error", closeErr)
+		}
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 

@@ -13,7 +13,14 @@ import (
 	"github.com/google/uuid"
 )
 
-const DataFileName = "data.db"
+const (
+	DataFileName = "data.db"
+	// expiryCheckDelay is the time to wait for key expiration to take effect.
+	// EXPIRE command in tests uses 100ms, so we add a small buffer to ensure expiration.
+	expiryCheckDelay = 110 * time.Millisecond
+	// restartLoadDelay is the time to wait for a program to load persisted data after restart.
+	restartLoadDelay = 100 * time.Millisecond
+)
 
 // Reset removes any existing data.db to ensure clean state
 func Reset(program ProgramRunner) error {
@@ -409,8 +416,8 @@ func EvaluateTTLBasic(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 		return rubricItem(fmt.Sprintf("GET returned wrong value, expected '%s', got '%v'", value, out), 0)
 	}
 
-	// Sleep 110ms to let key expire
-	time.Sleep(110 * time.Millisecond)
+	// Sleep to let key expire (EXPIRE sets 100ms, add buffer to ensure expiration)
+	time.Sleep(expiryCheckDelay)
 
 	// GET key -> expect "nil" or empty
 	out, err = do(ctx, program, fmt.Sprintf("GET %s", key))
@@ -606,7 +613,7 @@ func EvaluateTransactions(ctx context.Context, program ProgramRunner, bag RunBag
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf("Restart failed: %v", err), 0)
 	}
-	time.Sleep(100 * time.Millisecond) // Wait for program to load data
+	time.Sleep(restartLoadDelay) // Wait for program to load persisted data
 
 	// GET keyCommit -> expect valCommit (commit persists)
 	out, err = do(ctx, program, fmt.Sprintf("GET %s", keyCommit))

@@ -42,6 +42,10 @@ type R2Storage struct {
 	bucket               string
 }
 
+// This formula allows efficient concurrent object fetches without overwhelming the system,
+// providing approximately 4 concurrent requests per available CPU core.
+const maxConcurrentMultiplier = 4
+
 // NewR2Storage creates a new R2 storage instance
 func NewR2Storage(ctx context.Context, cfg *R2Config) (*R2Storage, error) {
 	// Apply defaults
@@ -82,7 +86,7 @@ func NewR2Storage(ctx context.Context, cfg *R2Config) (*R2Storage, error) {
 	})
 
 	storage := &R2Storage{
-		maxConcurrentFetches: 4 * runtime.NumCPU(),
+		maxConcurrentFetches: maxConcurrentMultiplier * runtime.NumCPU(),
 		client:               client,
 		bucket:               cfg.Bucket,
 	}
