@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -98,8 +100,11 @@ type Config struct {
 	// Connect client for the RubricService
 	RubricClient protoconnect.RubricServiceClient
 
-	// Writer is where the resulting rubric table will be written. If nil,
+	// Writer is where the resulting rubric table will be written. If nil, defaults to os.Stdout
 	Writer io.Writer
+
+	// Reader is where to read user input from. If nil, defaults to os.Stdin
+	Reader io.Reader
 }
 
 // AuthTransport injects an Authorization header for every outgoing request.
@@ -108,6 +113,8 @@ type AuthTransport struct {
 	token string
 }
 
+// NewAuthTransport creates a new AuthTransport with the given token.
+// If base is nil, http.DefaultTransport is used.
 func NewAuthTransport(token string, base http.RoundTripper) *AuthTransport {
 	if base == nil {
 		base = http.DefaultTransport
@@ -118,6 +125,7 @@ func NewAuthTransport(token string, base http.RoundTripper) *AuthTransport {
 	}
 }
 
+// RoundTrip implements http.RoundTripper by adding an Authorization header to each request.
 func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone request to avoid mutating the original
 	clone := req.Clone(req.Context())
@@ -125,8 +133,19 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(clone)
 }
 
-// uploadRubricResult uploads the rubric result to the server using Connect
-func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient, result *rubrics.Result) error {
+// UploadResult prompts the user for confirmation and uploads the rubric result to the server.
+// If RubricClient is nil, logs and returns without error.
+// If Reader is nil, defaults to os.Stdin for user input.
+func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) error {
+	if cfg.RubricClient == nil {
+		slog.Info("Skipping upload - no rubric client configured")
+		return nil
+	}
+
+	if !promptForSubmission(cfg.Reader) {
+		return nil
+	}
+
 	// Convert rubrics.Result to protobuf format
 	rubricItems := make([]*proto.RubricItem, len(result.Rubric))
 	for i, item := range result.Rubric {
@@ -146,7 +165,7 @@ func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient,
 		},
 	})
 
-	resp, err := c.UploadRubricResult(ctx, req)
+	resp, err := cfg.RubricClient.UploadRubricResult(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to upload result: %w", err)
 	}
@@ -159,8 +178,53 @@ func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient,
 	return nil
 }
 
+// promptForSubmission asks the user if they want to submit results to the server.
+// Returns true if user confirms, false otherwise.
+// Uses the provided reader for input, or os.Stdin if reader is nil.
+// Accepts "y", "Y", "yes", "YES" (case-insensitive, whitespace-trimmed).
+func promptForSubmission(reader io.Reader) bool {
+	if reader == nil {
+		reader = os.Stdin
+	}
+
+	fmt.Print("\nSubmit results to server? (y/n): ")
+	bufReader := bufio.NewReader(reader)
+	response, err := bufReader.ReadString('\n')
+	if err != nil {
+		slog.Warn("Failed to read user input", "error", err)
+		return false
+	}
+
+	response = strings.TrimSpace(response)
+	responseLower := strings.ToLower(response)
+	return responseLower == "y" || responseLower == "yes"
+}
+
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
 func ExecuteProject1(ctx context.Context, cfg *Config) error {
+	return executeProject(ctx, cfg, "project1",
+		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+		rubrics.EvaluateDataFileCreated,
+		rubrics.EvaluateSetGet,
+		rubrics.EvaluateOverwriteKey,
+		rubrics.EvaluateNonexistentGet,
+		rubrics.EvaluatePersistenceAfterRestart,
+	)
+}
+
+// ExecuteProject2 executes the project2 grading flow using a runtime config.
+func ExecuteProject2(ctx context.Context, cfg *Config) error {
+	return executeProject(ctx, cfg, "project2",
+		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+		rubrics.EvaluateDeleteExists,
+		rubrics.EvaluateMSetMGet,
+		rubrics.EvaluateTTLBasic,
+		rubrics.EvaluateRange,
+		rubrics.EvaluateTransactions,
+	)
+}
+
+func executeProject(ctx context.Context, cfg *Config, name string, items ...rubrics.Evaluator) error {
 	factory := &rubrics.ExecCommandFactory{Context: ctx}
 	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, factory)
 	defer func() {
@@ -178,17 +242,9 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	items := []rubrics.Evaluator{
-		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
-		rubrics.EvaluateDataFileCreated,
-		rubrics.EvaluateSetGet,
-		rubrics.EvaluateOverwriteKey,
-		rubrics.EvaluateNonexistentGet,
-		rubrics.EvaluatePersistenceAfterRestart,
-	}
 	if cfg.QualityClient != nil {
 		sourceFS := os.DirFS(program.Path())
-		instructions := instructionsFor("project1")
+		instructions := instructionsFor(name)
 		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, sourceFS, configFS, instructions))
 	}
 	for _, item := range items {
@@ -200,20 +256,11 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	// Print rubric table to configured writer (default to stdout)
 	results.Render(cfg.Writer)
 
-	// Upload the results to the server
-	if cfg.RubricClient != nil {
-		if err := uploadRubricResult(ctx, cfg.RubricClient, results); err != nil {
-			slog.Error("Failed to upload rubric result", "error", err)
-		}
-	} else {
-		slog.Info("Skipping upload - no rubric client configured")
+	// Upload the results to the server with user confirmation
+	if err := cfg.UploadResult(ctx, results); err != nil {
+		slog.Error("Failed to upload rubric result", "error", err)
+		// Don't fail the whole execution just because upload failed
 	}
 
-	return nil
-}
-
-// ExecuteProject2 executes the project2 grading flow using a runtime config.
-func ExecuteProject2(_ context.Context, _ *Config) error {
-	// Implementation for executing project2
 	return nil
 }

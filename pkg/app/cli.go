@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -40,6 +41,8 @@ type (
 		RunCmd    string         `name:"run" help:"Command to run your program" required:""`
 
 		Client *http.Client `kong:"-"`
+		Stdin  io.Reader    `kong:"-"` // For testing - can inject stdin for prompts
+		Stdout io.Writer    `kong:"-"` // For testing - can capture output
 	}
 )
 
@@ -95,21 +98,29 @@ func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
 }
 
 func (cmd *Project1Cmd) Run(ctx Context) error {
-	return client.ExecuteProject1(ctx, &client.Config{
+	cfg := &client.Config{
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,
 		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
 		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-	})
+		Reader:        cmd.Stdin,
+		Writer:        cmd.Stdout,
+	}
+
+	return client.ExecuteProject1(ctx, cfg)
 }
 
 func (cmd *Project2Cmd) Run(ctx Context) error {
-	return client.ExecuteProject2(ctx, &client.Config{
+	cfg := &client.Config{
 		ServerURL:     cmd.ServerURL,
 		Dir:           cmd.Dir,
 		RunCmd:        cmd.RunCmd,
 		QualityClient: protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
 		RubricClient:  protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-	})
+		Reader:        cmd.Stdin,
+		Writer:        cmd.Stdout,
+	}
+
+	return client.ExecuteProject2(ctx, cfg)
 }

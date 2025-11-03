@@ -20,7 +20,7 @@ type failingChrootFS struct {
 	billy.Filesystem
 }
 
-//nolint:ireturn // billy.Filesystem is not an interface we can change
+//nolint:ireturn // returns billy.Filesystem
 func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
 	if path == ".git" {
 		return nil, errors.New("chroot failed")
@@ -30,7 +30,7 @@ func (f *failingChrootFS) Chroot(path string) (billy.Filesystem, error) {
 
 // setupGitRepoWithCommit creates a git repo with an initial commit
 //
-//nolint:ireturn // billy.Filesystem is not an interface we can change
+//nolint:ireturn // returns billy.Filesystem
 func setupGitRepoWithCommit(t *testing.T) billy.Filesystem {
 	t.Helper()
 	fs := memfs.New()
@@ -65,7 +65,7 @@ func setupGitRepoWithCommit(t *testing.T) billy.Filesystem {
 
 // setupEmptyGitRepo creates a git repo without commits
 //
-//nolint:ireturn // billy.Filesystem is not an interface we can change
+//nolint:ireturn // returns billy.Filesystem
 func setupEmptyGitRepo(t *testing.T) billy.Filesystem {
 	t.Helper()
 	fs := memfs.New()
@@ -83,7 +83,7 @@ func setupEmptyGitRepo(t *testing.T) billy.Filesystem {
 
 // setupInvalidGitDir creates a .git directory without proper git structure
 //
-//nolint:ireturn // billy.Filesystem is not an interface we can change
+//nolint:ireturn // returns billy.Filesystem
 func setupInvalidGitDir(t *testing.T) billy.Filesystem {
 	t.Helper()
 	fs := memfs.New()

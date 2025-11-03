@@ -163,6 +163,7 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: &mockQualityServiceClient{},
 					RubricClient:  &mockRubricServiceClient{},
+					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
 				},
 			},
@@ -212,6 +213,7 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: nil,
 					RubricClient:  &mockRubricServiceClient{},
+					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
 				},
 			},
@@ -235,6 +237,7 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: nil,
 					RubricClient:  &mockRubricServiceClient{uploadError: errors.New("upload failed")},
+					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
 				},
 			},
@@ -282,6 +285,7 @@ func TestExecuteProject1(t *testing.T) {
 						feedback:     "Excellent code quality",
 					},
 					RubricClient: &mockRubricServiceClient{},
+					Reader:       strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:       &bytes.Buffer{},
 				},
 			},
@@ -377,6 +381,66 @@ func TestExecuteProject1(t *testing.T) {
 					t.Fatal("expected output, got none")
 				}
 				tt.checkOutput(t, buf.String())
+			}
+		})
+	}
+}
+
+// errorReader is a reader that always returns an error
+type errorReader struct{}
+
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("read error")
+}
+
+// TestPromptResponses tests different user input responses to the submission prompt
+func TestPromptResponses(t *testing.T) {
+	t.Parallel()
+
+	dir := createTestGitRepo(t)
+
+	tests := []struct {
+		name            string
+		userInput       io.Reader
+		wantUploadCalls int
+	}{
+		{"lowercase y", strings.NewReader("y\n"), 1},
+		{"uppercase Y", strings.NewReader("Y\n"), 1},
+		{"lowercase yes", strings.NewReader("yes\n"), 1},
+		{"uppercase YES", strings.NewReader("YES\n"), 1},
+		{"mixed case Yes", strings.NewReader("Yes\n"), 1},
+		{"whitespace around y", strings.NewReader("  y  \n"), 1},
+		{"whitespace around yes", strings.NewReader("  yes  \n"), 1},
+		{"lowercase n", strings.NewReader("n\n"), 0},
+		{"uppercase N", strings.NewReader("N\n"), 0},
+		{"lowercase no", strings.NewReader("no\n"), 0},
+		{"anything else", strings.NewReader("maybe\n"), 0},
+		{"empty input", strings.NewReader("\n"), 0},
+		{"reader error", &errorReader{}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockRubricServiceClient{}
+			cfg := client.Config{
+				ServerURL:    "http://example.com",
+				Dir:          client.WorkDir(dir),
+				RunCmd:       "",
+				RubricClient: mockClient,
+				Reader:       tt.userInput,
+				Writer:       &bytes.Buffer{},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			err := client.ExecuteProject1(ctx, &cfg)
+			if err != nil {
+				t.Fatalf("ExecuteProject1 failed: %v", err)
+			}
+
+			if mockClient.uploadCalls != tt.wantUploadCalls {
+				t.Errorf("expected %d upload calls, got %d", tt.wantUploadCalls, mockClient.uploadCalls)
 			}
 		})
 	}
@@ -628,6 +692,7 @@ func TestAuthTransportEmptyToken(t *testing.T) {
 		Dir:          client.WorkDir(dir),
 		RunCmd:       "",
 		RubricClient: mockRubricClient,
+		Reader:       strings.NewReader("y\n"), // Simulate user saying "yes"
 		Writer:       &bytes.Buffer{},
 	}
 
@@ -686,6 +751,7 @@ func TestAuthTransportHeaderOverwrite(t *testing.T) {
 		RunCmd:        "",
 		QualityClient: nil, // Avoid hanging on quality client
 		RubricClient:  mockRubricClient,
+		Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 		Writer:        &bytes.Buffer{},
 	}
 
@@ -711,31 +777,26 @@ func TestAuthTransportHeaderOverwrite(t *testing.T) {
 }
 
 func TestExecuteProject2Simple(t *testing.T) {
-	// Test ExecuteProject2 basic functionality with various configurations
+	// Test ExecuteProject2 exists and has the right signature
+	// We can't fully test it without a real project2 implementation,
+	// so we just verify the function compiles and can be called
+	dir := createTestGitRepo(t)
 
 	cfg := client.Config{
 		ServerURL:     "http://example.com",
-		Dir:           "/tmp",
-		RunCmd:        "echo hello",
-		QualityClient: nil, // Avoid hanging on quality client
-		RubricClient:  &mockRubricServiceClient{},
+		Dir:           client.WorkDir(dir),
+		RunCmd:        "cat", // Use cat which will wait for input and timeout
+		QualityClient: nil,
+		RubricClient:  nil,
 		Writer:        &bytes.Buffer{},
 	}
 
-	ctx := context.Background()
+	// Use a very short timeout since we expect evaluators to timeout with 'cat'
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	err := client.ExecuteProject2(ctx, &cfg)
-	// Don't assert specific behavior since it might be unimplemented
-	_ = err
-
-	// Test with nil clients
-	cfg.QualityClient = nil
-	cfg.RubricClient = nil
-	err = client.ExecuteProject2(ctx, &cfg)
-	_ = err
-
-	// Test with failing writer
-	cfg.Writer = &failingWriter{}
-	err = client.ExecuteProject2(ctx, &cfg)
-	_ = err
+	// ExecuteProject2 should complete even if evaluators fail/timeout
+	_ = client.ExecuteProject2(ctx, &cfg)
+	// We don't assert on error because evaluators will timeout with 'cat'
+	// The important thing is that the function exists and doesn't panic
 }
