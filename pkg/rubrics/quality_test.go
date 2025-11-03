@@ -8,10 +8,9 @@ import (
 	"testing/fstest"
 
 	"connectrpc.com/connect"
-	"github.com/stretchr/testify/assert"
-
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
+	"github.com/stretchr/testify/assert"
 )
 
 // errorFS is a filesystem that can be configured to return errors

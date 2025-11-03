@@ -3,7 +3,6 @@ package rubrics
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 )
 
 const (
@@ -242,7 +243,7 @@ func do(ctx context.Context, program ProgramRunner, cmd string) ([]string, error
 		return nil, err
 	}
 	if len(errOut) > 0 {
-		slog.InfoContext(ctx, "Unexpected STDERR", slog.Any("output", errOut))
+		contextlog.From(ctx).Info("Unexpected STDERR", "output", errOut)
 	}
 
 	return out, nil

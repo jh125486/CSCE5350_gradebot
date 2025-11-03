@@ -1,7 +1,6 @@
 package storage_test
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
@@ -52,7 +52,7 @@ func TestNewSQLStorage(t *testing.T) {
 				tt.setup(t)
 			}
 
-			ctx := context.Background()
+			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 			s, err := storage.NewSQLStorage(ctx, tt.args.databaseURL)
 
 			if tt.wantErr {
@@ -121,7 +121,7 @@ func TestSQLStorage_SaveResult(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 	store := createTestSQLStorage(t)
 	defer store.Close()
 
@@ -141,7 +141,7 @@ func TestSQLStorage_SaveResult(t *testing.T) {
 func TestSQLStorage_LoadResult(t *testing.T) {
 	skipIfNoSQL(t)
 
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 	store := createTestSQLStorage(t)
 	defer store.Close()
 
@@ -209,7 +209,7 @@ func TestSQLStorage_LoadResult(t *testing.T) {
 func TestSQLStorage_ListResultsPaginated(t *testing.T) {
 	skipIfNoSQL(t)
 
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 	store := createTestSQLStorage(t)
 	defer store.Close()
 
@@ -298,7 +298,7 @@ func skipIfNoSQL(t *testing.T) {
 func TestSQLStorage_ListResultsPaginated_EmptyDatabase(t *testing.T) {
 	skipIfNoSQL(t)
 
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 	store := createTestSQLStorage(t)
 	defer store.Close()
 
@@ -319,7 +319,7 @@ func TestSQLStorage_ListResultsPaginated_EmptyDatabase(t *testing.T) {
 
 func createTestSQLStorage(t *testing.T) *storage.SQLStorage {
 	t.Helper()
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 	store, err := storage.NewSQLStorage(ctx, os.Getenv("DATABASE_URL"))
 	require.NoError(t, err)
 	return store
@@ -339,7 +339,7 @@ func clearTestData(t *testing.T, store *storage.SQLStorage) {
 
 func createTestData(t *testing.T, store *storage.SQLStorage, count int) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 
 	for i := range count {
 		result := &proto.Result{
@@ -377,7 +377,7 @@ func TestSQLStorageErrorScenarios(t *testing.T) {
 			}
 		}
 
-		err := store.SaveResult(t.Context(), result)
+		err := store.SaveResult(contextlog.With(t.Context(), contextlog.DiscardLogger()), result)
 		assert.NoError(t, err) // Should handle large data
 	})
 
@@ -390,7 +390,7 @@ func TestSQLStorageErrorScenarios(t *testing.T) {
 			PageSize: 10,
 		}
 
-		results, totalCount, err := store.ListResultsPaginated(t.Context(), params)
+		results, totalCount, err := store.ListResultsPaginated(contextlog.With(t.Context(), contextlog.DiscardLogger()), params)
 		assert.NoError(t, err)
 		assert.NotNil(t, results)
 		assert.GreaterOrEqual(t, totalCount, 0)
@@ -405,7 +405,7 @@ func TestSQLStorageErrorScenarios(t *testing.T) {
 			PageSize: 0,
 		}
 
-		results, totalCount, err := store.ListResultsPaginated(t.Context(), params)
+		results, totalCount, err := store.ListResultsPaginated(contextlog.With(t.Context(), contextlog.DiscardLogger()), params)
 		assert.NoError(t, err)
 		assert.NotNil(t, results)
 		assert.GreaterOrEqual(t, totalCount, 0)

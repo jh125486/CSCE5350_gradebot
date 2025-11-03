@@ -131,6 +131,14 @@ func (cmd *ServerCmd) Run(ctx Context, buildID string) error {
 	})
 }
 
+// AfterRun is a Kong hook that closes the storage connection after the server stops.
+func (cmd *ServerCmd) AfterRun() error {
+	if cmd.storage != nil {
+		return cmd.storage.Close()
+	}
+	return nil
+}
+
 // Run executes the Project 1 grading client.
 func (cmd *Project1Cmd) Run(ctx Context) error {
 	cfg := &client.Config{

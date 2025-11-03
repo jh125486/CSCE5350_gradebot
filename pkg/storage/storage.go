@@ -54,4 +54,5 @@ type Storage interface {
 	SaveResult(ctx context.Context, result *proto.Result) error
 	LoadResult(ctx context.Context, submissionID string) (*proto.Result, error)
 	ListResultsPaginated(ctx context.Context, params ListResultsParams) (map[string]*proto.Result, int, error)
+	Close() error
 }

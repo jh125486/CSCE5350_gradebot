@@ -22,6 +22,7 @@ import (
 	"github.com/go-git/go-git/v5/storage/filesystem"
 
 	"github.com/jh125486/CSCE5350_gradebot/pkg/client"
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 )
@@ -156,7 +157,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "nonexistent_directory",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
 					Dir:           "",
@@ -183,7 +184,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "success_path_no_upload",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
 					Dir:           "", // Will be set by setupDir
@@ -206,7 +207,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "success_with_upload",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
 					Dir:           "", // Will be set by setupDir
@@ -230,7 +231,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "upload_error",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
 					Dir:           "", // Will be set by setupDir
@@ -254,7 +255,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "failing_writer",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL:     "http://example.com",
 					Dir:           "", // Will be set by setupDir
@@ -275,7 +276,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "with_quality_client_success",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL: "http://example.com",
 					Dir:       "", // Will be set by setupDir
@@ -305,7 +306,7 @@ func TestExecuteProject1(t *testing.T) {
 		{
 			name: "with_quality_client_error",
 			args: args{
-				ctx: context.Background(),
+				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: client.Config{
 					ServerURL: "http://example.com",
 					Dir:       "", // Will be set by setupDir
@@ -536,6 +537,7 @@ func (f *failingRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 func TestAuthTransport(t *testing.T) {
+	t.Parallel()
 	type args struct {
 		token              string
 		baseTransport      http.RoundTripper
@@ -630,9 +632,13 @@ func TestAuthTransport(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			rt := client.NewAuthTransport(tt.args.token, tt.args.baseTransport)
 			httpClient := &http.Client{Transport: rt}
-			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
+			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
+
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", http.NoBody)
 
 			if tt.args.existingAuthHeader != "" {
 				req.Header.Set("Authorization", tt.args.existingAuthHeader)
@@ -656,7 +662,7 @@ func TestAuthTransport(t *testing.T) {
 					Reader:        strings.NewReader("y\n"),
 				}
 
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				defer cancel()
 
 				err := client.ExecuteProject1(ctx, &cfg)
@@ -822,8 +828,9 @@ func TestExecuteProject2(t *testing.T) {
 				Reader:        strings.NewReader(tt.args.userInput),
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.args.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.args.timeout)
 			defer cancel()
+			ctx = contextlog.With(ctx, contextlog.DiscardLogger())
 
 			err := client.ExecuteProject2(ctx, &cfg)
 

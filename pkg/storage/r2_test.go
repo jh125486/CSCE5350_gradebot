@@ -1,7 +1,6 @@
 package storage_test
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
@@ -113,7 +113,7 @@ func TestNewR2Storage(t *testing.T) {
 				skipIfNoR2(t)
 			}
 
-			s, err := storage.NewR2Storage(context.Background(), tt.cfg)
+			s, err := storage.NewR2Storage(contextlog.With(t.Context(), contextlog.DiscardLogger()), tt.cfg)
 
 			if tt.wantError {
 				require.Error(t, err)
@@ -126,7 +126,7 @@ func TestNewR2Storage(t *testing.T) {
 				// Special case: test bucket already exists path
 				if tt.name == "bucket_already_exists" {
 					// Create another storage instance with the same bucket
-					s2, err2 := storage.NewR2Storage(context.Background(), tt.cfg)
+					s2, err2 := storage.NewR2Storage(contextlog.With(t.Context(), contextlog.DiscardLogger()), tt.cfg)
 					require.NoError(t, err2, "Second storage instance with same bucket should succeed")
 					require.NotNil(t, s2)
 				}
@@ -337,10 +337,11 @@ func TestR2StorageSaveResult(t *testing.T) {
 				UsePathStyle:    true,
 			}
 
-			s, err := storage.NewR2Storage(context.Background(), cfg)
+			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
+			s, err := storage.NewR2Storage(ctx, cfg)
 			require.NoError(t, err)
 
-			err = s.SaveResult(context.Background(), tt.result)
+			err = s.SaveResult(ctx, tt.result)
 
 			if tt.wantError {
 				assert.Error(t, err)
@@ -364,7 +365,7 @@ func TestR2StorageLoadResult(t *testing.T) {
 		UsePathStyle:    true,
 	}
 
-	s, err := storage.NewR2Storage(context.Background(), cfg)
+	s, err := storage.NewR2Storage(contextlog.With(t.Context(), contextlog.DiscardLogger()), cfg)
 	require.NoError(t, err)
 
 	// First, save a test result
@@ -383,7 +384,7 @@ func TestR2StorageLoadResult(t *testing.T) {
 		GeoLocation: "Test/Location",
 	}
 
-	err = s.SaveResult(context.Background(), testResult)
+	err = s.SaveResult(contextlog.With(t.Context(), contextlog.DiscardLogger()), testResult)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -446,7 +447,7 @@ func TestR2StorageLoadResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, err := s.LoadResult(context.Background(), tt.submissionID)
+			result, err := s.LoadResult(contextlog.With(t.Context(), contextlog.DiscardLogger()), tt.submissionID)
 
 			if tt.wantError {
 				assert.Error(t, err)
@@ -589,7 +590,7 @@ func TestR2StorageListResultsPaginated(t *testing.T) {
 	skipIfNoR2(t)
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
 
 	// Create unique bucket for this test
 	cfg := &storage.R2Config{

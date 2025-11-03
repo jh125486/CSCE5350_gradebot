@@ -5,8 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
-	"log"
-	"log/slog"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -18,6 +16,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/tomasen/realip"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
@@ -191,7 +190,7 @@ type QualityServer struct {
 
 // Start handles the server mode logic
 func Start(ctx context.Context, cfg Config) error {
-	log.Printf("Server will start on port %s", cfg.Port)
+	contextlog.From(ctx).Info("Server will start on port", "port", cfg.Port)
 	var lc net.ListenConfig
 	lis, err := lc.Listen(ctx, "tcp", ":"+cfg.Port)
 	if err != nil {
@@ -234,7 +233,7 @@ func Start(ctx context.Context, cfg Config) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
 	}
-	slog.Info("Connect HTTP server listening", "port", cfg.Port)
+	contextlog.From(ctx).Info("Connect HTTP server listening", "port", cfg.Port)
 
 	// Run Serve in goroutine so we can respond to ctx cancellation and
 	// attempt graceful shutdown.
@@ -257,7 +256,7 @@ func Start(ctx context.Context, cfg Config) error {
 }
 
 // parseSubmissionsFromResults converts storage results to submission data
-func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
+func parseSubmissionsFromResults(ctx context.Context, results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
 	submissions = make([]SubmissionData, 0, len(results))
 	highScore = 0.0
 
@@ -277,7 +276,7 @@ func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []S
 
 		timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 		if err != nil {
-			slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+			contextlog.From(ctx).Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
 			timestamp = time.Now()
 		}
 
@@ -344,13 +343,13 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		PageSize: pageSize,
 	})
 	if err != nil {
-		slog.Error("Failed to list paginated results from storage", "error", err)
+		contextlog.From(ctx).Error("Failed to list paginated results from storage", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Parse submissions and calculate scores
-	submissions, highScore := parseSubmissionsFromResults(results)
+	submissions, highScore := parseSubmissionsFromResults(ctx, results)
 
 	// Calculate pagination with actual total count from storage
 	totalPages := (totalCount + pageSize - 1) / pageSize
@@ -369,7 +368,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		HasNextPage:      page < totalPages,
 	}
 
-	slog.Info("Serving submissions page",
+	contextlog.From(ctx).Info("Serving submissions page",
 		"total_submissions", totalCount,
 		"page", page,
 		"total_pages", totalPages,
@@ -380,7 +379,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		// Return only table content for HTMX
 		w.Header().Set(contentTypeHeader, htmlContentType)
 		if err := executeTableContent(w, &data, rubricServer); err != nil {
-			slog.Error(templateExecErrMsg, "error", err)
+			contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
 			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 			return
 		}
@@ -389,7 +388,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 
 	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
-		slog.Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
@@ -412,7 +411,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	ctx := r.Context()
 	result, err := rubricServer.storage.LoadResult(ctx, submissionID)
 	if err != nil {
-		slog.Error("Failed to load result from storage", "error", err, "submission_id", submissionID)
+		contextlog.From(ctx).Error("Failed to load result from storage", "error", err, "submission_id", submissionID)
 		http.Error(w, "Submission not found", http.StatusNotFound)
 		return
 	}
@@ -433,7 +432,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	// Parse timestamp
 	timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 	if err != nil {
-		slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+		contextlog.From(ctx).Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
 		timestamp = time.Now()
 	}
 
@@ -469,7 +468,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 
 	if err := rubricServer.templates.submissionTmpl.Execute(w, data); err != nil {
-		slog.Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
@@ -484,7 +483,7 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				slog.Info("Request completed", slog.Any("IP", r.RemoteAddr), slog.Any("duration", duration))
+				contextlog.From(r.Context()).Info("Request completed", "IP", r.RemoteAddr, "duration", duration)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -512,7 +511,7 @@ func AuthMiddleware(token string) func(http.Handler) http.Handler {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				slog.Info("Request completed", slog.Any("IP", r.RemoteAddr), slog.Any("duration", duration))
+				contextlog.From(r.Context()).Info("Request completed", "IP", r.RemoteAddr, "duration", duration)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -570,7 +569,7 @@ func (s *QualityServer) EvaluateCodeQuality(
 
 	review, err := s.OpenAIClient.ReviewCode(ctx, req.Msg.Instructions, req.Msg.Files)
 	if err != nil {
-		slog.Error("failed to review code", "error", err)
+		contextlog.From(ctx).Error("failed to review code", "error", err)
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to review code"))
 	}
 

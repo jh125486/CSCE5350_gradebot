@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
 )
 
@@ -222,7 +223,7 @@ func TestEvaluateDataFileCreated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			bag := make(rubrics.RunBag)
 			mock := newKVStoreMock(t)
 
@@ -310,7 +311,7 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			bag := make(rubrics.RunBag)
 			mock := newKVStoreMock(t)
 
@@ -374,7 +375,7 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			mock := newKVStoreMock(t)
 			bag := make(rubrics.RunBag)
 
@@ -619,7 +620,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 			bag := make(rubrics.RunBag)
 			prog := &simpleMockProgram{bag: bag, responses: tt.responses(bag), runErr: tt.runErr}
 			// Test
-			item := rubrics.EvaluateSetGet(t.Context(), prog, bag)
+			item := rubrics.EvaluateSetGet(contextlog.With(t.Context(), contextlog.DiscardLogger()), prog, bag)
 			// Assert
 			// Points is the maximum for the rubric item; Awarded holds the
 			// actually awarded points.
@@ -750,7 +751,7 @@ func TestEvaluateOverwriteKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			program := newKVStoreMock(t)
 			bag := make(rubrics.RunBag)
 
@@ -838,7 +839,7 @@ func TestReset(t *testing.T) {
 func TestEvaluateDeleteExists_Detailed(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
 	tests := []struct {
 		name           string
@@ -975,7 +976,7 @@ func TestEvaluateDeleteExists_Detailed(t *testing.T) {
 func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
 	tests := []struct {
 		name           string
@@ -1099,7 +1100,7 @@ func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 func TestEvaluateTTLBasic_Detailed(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
 	tests := []struct {
 		name           string
@@ -1256,7 +1257,7 @@ func TestEvaluateTTLBasic_Detailed(t *testing.T) {
 func TestEvaluateRange_Detailed(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
 	tests := []struct {
 		name           string
@@ -1378,7 +1379,7 @@ func TestEvaluateRange_Detailed(t *testing.T) {
 func TestEvaluateTransactions_Detailed(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
 	tests := []struct {
 		name           string

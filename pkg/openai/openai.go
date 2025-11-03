@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/responses"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
@@ -72,7 +72,7 @@ func (c *Client) ReviewCode(ctx context.Context, instructions string, files []*p
 
 	start := time.Now()
 	defer func() {
-		slog.InfoContext(ctx, "OpenAI API call complete", slog.Duration("duration", time.Since(start)))
+		contextlog.From(ctx).Info("OpenAI API call complete", "duration", time.Since(start))
 	}()
 
 	devPrompt := strings.TrimSpace(`

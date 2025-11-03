@@ -11,6 +11,7 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
@@ -39,7 +40,7 @@ func NewSQLStorage(ctx context.Context, databaseURL string) (*SQLStorage, error)
 	// Verify connection
 	if err := db.PingContext(ctx); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
-			slog.Error("failed to close database after ping error", "error", closeErr)
+			contextlog.From(ctx).Error("failed to close database after ping error", "error", closeErr)
 		}
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -52,7 +53,7 @@ func NewSQLStorage(ctx context.Context, databaseURL string) (*SQLStorage, error)
 		return nil, fmt.Errorf("failed to ensure table exists: %w", err)
 	}
 
-	slog.Info("Connected to SQL database")
+	contextlog.From(ctx).Info("Connected to SQL database")
 
 	return storage, nil
 }
@@ -75,7 +76,7 @@ func (s *SQLStorage) ensureTableExists(ctx context.Context) error {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
-	slog.Info("Ensured submissions table exists")
+	contextlog.From(ctx).Info("Ensured submissions table exists")
 	return nil
 }
 
@@ -113,7 +114,7 @@ func (s *SQLStorage) SaveResult(ctx context.Context, result *proto.Result) error
 		return fmt.Errorf("failed to save result to database: %w", err)
 	}
 
-	slog.Info("Saved rubric result",
+	contextlog.From(ctx).Info("Saved rubric result",
 		slog.String("submission_id", result.SubmissionId),
 		slog.String("project", result.Project),
 		slog.Duration("duration", time.Since(start)),
@@ -143,7 +144,7 @@ func (s *SQLStorage) LoadResult(ctx context.Context, submissionID string) (*prot
 		return nil, fmt.Errorf("failed to decode result: %w", err)
 	}
 
-	slog.Info("Loaded rubric result",
+	contextlog.From(ctx).Info("Loaded rubric result",
 		slog.String("submission_id", submissionID),
 		slog.Duration("duration", time.Since(start)),
 	)
@@ -194,18 +195,19 @@ func (s *SQLStorage) ListResultsPaginated(
 	unmarshaler := protojson.UnmarshalOptions{
 		DiscardUnknown: true,
 	}
+	logger := contextlog.From(ctx)
 
 	for rows.Next() {
 		var submissionID string
 		var resultJSON []byte
 		if err := rows.Scan(&submissionID, &resultJSON); err != nil {
-			slog.Warn("Failed to scan row", "error", err)
+			logger.Warn("Failed to scan row", "error", err)
 			continue
 		}
 
 		var result proto.Result
 		if err := unmarshaler.Unmarshal(resultJSON, &result); err != nil {
-			slog.Warn("Failed to unmarshal result", "submission_id", submissionID, "error", err)
+			logger.Warn("Failed to unmarshal result", "submission_id", submissionID, "error", err)
 			continue
 		}
 
@@ -216,7 +218,7 @@ func (s *SQLStorage) ListResultsPaginated(
 		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	slog.Info("Listed paginated rubric results",
+	logger.Info("Listed paginated rubric results",
 		slog.Int("page", params.Page),
 		slog.Int("page_size", params.PageSize),
 		slog.Int("total_count", totalCount),

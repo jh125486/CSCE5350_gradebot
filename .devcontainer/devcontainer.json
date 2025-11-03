@@ -29,7 +29,8 @@
         "ms-vscode.vscode-json",
         "ms-vscode.vscode-yaml",
         "SonarSource.sonarlint-vscode",
-        "XiaoXuxxxx.gogo-codelens"
+        "XiaoXuxxxx.gogo-codelens",
+        "SebastianPanetta.golang-table-driven-tests"
       ],
       "settings": {
         "go.toolsManagement.checkForUpdates": "local",

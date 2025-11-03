@@ -16,6 +16,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/go-git/go-billy/v5/osfs"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
@@ -138,11 +139,11 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // If Reader is nil, defaults to os.Stdin for user input.
 func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) error {
 	if cfg.RubricClient == nil {
-		slog.Info("Skipping upload - no rubric client configured")
+		contextlog.From(ctx).Info("Skipping upload - no rubric client configured")
 		return nil
 	}
 
-	if !promptForSubmission(cfg.Reader) {
+	if !promptForSubmission(ctx, cfg.Writer, cfg.Reader) {
 		return nil
 	}
 
@@ -171,7 +172,7 @@ func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) err
 		return fmt.Errorf("failed to upload result: %w", err)
 	}
 
-	slog.Info("Successfully uploaded rubric result",
+	contextlog.From(ctx).Info("Successfully uploaded rubric result",
 		"submission_id", result.SubmissionID,
 		"response", resp.Msg,
 	)
@@ -181,25 +182,29 @@ func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) err
 
 // promptForSubmission asks the user if they want to submit results to the server.
 // Returns true if user confirms, false otherwise.
+// Uses the provided writer for prompts, or os.Stdout if writer is nil.
 // Uses the provided reader for input, or os.Stdin if reader is nil.
 // Accepts "y", "Y", "yes", "YES" (case-insensitive, whitespace-trimmed).
-func promptForSubmission(reader io.Reader) bool {
-	if reader == nil {
-		reader = os.Stdin
+func promptForSubmission(ctx context.Context, w io.Writer, r io.Reader) bool {
+	if w == nil {
+		w = os.Stdout
+	}
+	if r == nil {
+		r = os.Stdin
 	}
 
-	fmt.Print("\nSubmit results to server? (y/n): ")
-	bufReader := bufio.NewReader(reader)
-	r, err := bufReader.ReadString('\n')
+	fmt.Fprintf(w, "\nSubmit results to server? (y/n): ")
+	bufReader := bufio.NewReader(r)
+	resp, err := bufReader.ReadString('\n')
 	if err != nil {
-		slog.Warn("Failed to read user input", "error", err)
+		contextlog.From(ctx).Warn("Failed to read user input", "error", err)
 		return false
 	}
 
-	r = strings.TrimSpace(r)
-	r = strings.ToLower(r)
+	resp = strings.TrimSpace(resp)
+	resp = strings.ToLower(resp)
 
-	return r == "y" || r == "yes"
+	return resp == "y" || resp == "yes"
 }
 
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
@@ -231,7 +236,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, factory)
 	defer func() {
 		if err := program.Kill(); err != nil {
-			slog.Error("failed to kill program", slog.Any("error", err))
+			contextlog.From(ctx).Error("failed to kill program", slog.Any("error", err))
 		}
 	}()
 
@@ -240,7 +245,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 
 	// Reset to ensure clean state before running evaluators
 	if err := rubrics.Reset(program); err != nil {
-		slog.Error("failed to reset program state", slog.Any("error", err))
+		contextlog.From(ctx).Error("failed to reset program state", slog.Any("error", err))
 		return err
 	}
 
@@ -260,7 +265,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 
 	// Upload the results to the server with user confirmation
 	if err := cfg.UploadResult(ctx, results); err != nil {
-		slog.Error("Failed to upload rubric result", "error", err)
+		contextlog.From(ctx).Error("Failed to upload rubric result", "error", err)
 		// Don't fail the whole execution just because upload failed
 	}
 
