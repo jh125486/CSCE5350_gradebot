@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/go-git/go-billy/v5/osfs"
 
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
@@ -162,6 +162,7 @@ func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) err
 			SubmissionId: result.SubmissionID,
 			Timestamp:    result.Timestamp.Format(time.RFC3339),
 			Rubric:       rubricItems,
+			Project:      result.Project,
 		},
 	})
 
@@ -189,20 +190,21 @@ func promptForSubmission(reader io.Reader) bool {
 
 	fmt.Print("\nSubmit results to server? (y/n): ")
 	bufReader := bufio.NewReader(reader)
-	response, err := bufReader.ReadString('\n')
+	r, err := bufReader.ReadString('\n')
 	if err != nil {
 		slog.Warn("Failed to read user input", "error", err)
 		return false
 	}
 
-	response = strings.TrimSpace(response)
-	responseLower := strings.ToLower(response)
-	return responseLower == "y" || responseLower == "yes"
+	r = strings.TrimSpace(r)
+	r = strings.ToLower(r)
+
+	return r == "y" || r == "yes"
 }
 
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
 func ExecuteProject1(ctx context.Context, cfg *Config) error {
-	return executeProject(ctx, cfg, "project1",
+	return executeProject(ctx, cfg, "CSCE5350:Project1",
 		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
@@ -214,7 +216,7 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 
 // ExecuteProject2 executes the project2 grading flow using a runtime config.
 func ExecuteProject2(ctx context.Context, cfg *Config) error {
-	return executeProject(ctx, cfg, "project2",
+	return executeProject(ctx, cfg, "CSCE5350:Project2",
 		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
 		rubrics.EvaluateDeleteExists,
 		rubrics.EvaluateMSetMGet,
@@ -233,7 +235,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 		}
 	}()
 
-	results := rubrics.NewResult()
+	results := rubrics.NewResult(name)
 	bag := make(rubrics.RunBag)
 
 	// Reset to ensure clean state before running evaluators
@@ -244,7 +246,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 
 	if cfg.QualityClient != nil {
 		sourceFS := os.DirFS(program.Path())
-		instructions := instructionsFor(name)
+		instructions := instructionsFor(results.Project)
 		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, sourceFS, configFS, instructions))
 	}
 	for _, item := range items {

@@ -73,7 +73,7 @@ type ExecCommandFactory struct {
 
 // New creates a new execCmd wrapper.
 //
-//nolint:ireturn // execCmd implements Commander
+//nolint:ireturn // Intentional: interface return for dependency injection
 func (f *ExecCommandFactory) New(name string, arg ...string) Commander {
 	return &execCmd{Cmd: exec.CommandContext(f.Context, name, arg...)}
 }

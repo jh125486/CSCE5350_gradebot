@@ -2,7 +2,6 @@ package app_test
 
 import (
 	"context"
-	"encoding/hex"
 	"net/http"
 	"os"
 	"testing"
@@ -21,21 +20,118 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return m.roundTripFunc(req)
 }
 
+const testBuildID = "test-build-id-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 // Keep this test lightweight: ensure ServerCmd.Run can be invoked without
 // leaving a long-running server. We call Run with a short timeout context so
 // the server will be shut down promptly by the context cancellation.
 func TestNewReturnsContext(t *testing.T) {
-	var id [32]byte
-	for i := range id {
-		id[i] = byte(i)
-	}
-	hexID := hex.EncodeToString(id[:])
+	t.Setenv("DATABASE_URL", os.Getenv("DATABASE_URL"))
 
 	var sc app.ServerCmd
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
+	sc.DatabaseURL = os.Getenv("DATABASE_URL")
+
+	initCtx, initCancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer initCancel()
+
+	// AfterApply must be called before Run to initialize storage
+	if err := sc.AfterApply(app.Context{initCtx}); err != nil {
+		t.Fatalf("AfterApply failed: %v", err)
+	}
+
+	runCtx, runCancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer runCancel()
+
 	// call Run; it should return after the context is cancelled (no hang)
-	_ = sc.Run(app.Context{ctx}, hexID)
+	_ = sc.Run(app.Context{runCtx}, testBuildID)
+}
+
+func TestServerCmd_Run(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     app.ServerCmd
+		wantErr bool
+	}{
+		{
+			name: "with sql storage",
+			cmd: app.ServerCmd{
+				DatabaseURL: os.Getenv("DATABASE_URL"),
+			},
+			wantErr: false, // Will timeout but no initialization error
+		},
+		{
+			name: "with r2 storage - valid config",
+			cmd: app.ServerCmd{
+				R2Endpoint:     "http://localstack:4566",
+				AWSRegion:      "us-east-1",
+				R2Bucket:       "test-bucket",
+				AWSAccessKeyID: "test-key",
+				AWSSecretKey:   "test-secret",
+				UsePathStyle:   "true",
+			},
+			wantErr: false,
+		},
+		{
+			name: "with r2 storage - invalid USE_PATH_STYLE",
+			cmd: app.ServerCmd{
+				R2Endpoint:     "http://localstack:4566",
+				AWSRegion:      "us-east-1",
+				R2Bucket:       "test-bucket",
+				AWSAccessKeyID: "test-key",
+				AWSSecretKey:   "test-secret",
+				UsePathStyle:   "not-a-bool",
+			},
+			wantErr: true, // mustBool returns false, tries virtual-hosted which fails with LocalStack
+		},
+		{
+			name: "with r2 storage - missing credentials",
+			cmd: app.ServerCmd{
+				R2Endpoint: "http://localstack:4566",
+			},
+			wantErr: true,
+		},
+		{
+			name:    "no storage configured",
+			cmd:     app.ServerCmd{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := tt.cmd
+
+			// Use a longer timeout for initialization (R2 needs time to connect to LocalStack)
+			initCtx, initCancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer initCancel()
+
+			// AfterApply must be called before Run to initialize storage
+			err := sc.AfterApply(app.Context{initCtx})
+			if tt.wantErr && err != nil {
+				// Expected error during initialization
+				return
+			}
+			if err != nil {
+				t.Fatalf("AfterApply() unexpected error: %v", err)
+			}
+
+			// Run the server with a short timeout (will timeout with context)
+			runCtx, runCancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+			defer runCancel()
+			err = sc.Run(app.Context{runCtx}, testBuildID)
+
+			// Assert
+			if tt.wantErr && err == nil {
+				t.Errorf("ServerCmd.Run() expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				// Context timeout is expected, initialization errors are not
+				if runCtx.Err() == nil {
+					t.Errorf("ServerCmd.Run() unexpected error: %v", err)
+				}
+			}
+		})
+	}
 }
 
 func TestWorkDirValidate(t *testing.T) {
@@ -136,10 +232,10 @@ func TestNewParseFlagsProducesContext(t *testing.T) {
 	dir := t.TempDir()
 	os.Args = []string{"gradebot-test", "project-1", "--dir", dir, "--run", "echo"}
 
+	// Use a simple test ID
 	var id [32]byte
-	for i := range id {
-		id[i] = byte(i)
-	}
+	copy(id[:], "test-id-for-parsing")
+
 	// pass a short-lived context to New for test determinism
 	ctx := app.New(t.Context(), "gradebot-test", id)
 	if ctx == nil {

@@ -28,7 +28,8 @@
         "golang.Go",
         "ms-vscode.vscode-json",
         "ms-vscode.vscode-yaml",
-        "SonarSource.sonarlint-vscode"
+        "SonarSource.sonarlint-vscode",
+        "XiaoXuxxxx.gogo-codelens"
       ],
       "settings": {
         "go.toolsManagement.checkForUpdates": "local",
@@ -72,7 +73,8 @@
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
   "forwardPorts": [
     8080,
-    4566
+    4566,
+    5432
   ],
   "portsAttributes": {
     "8080": {
@@ -82,6 +84,10 @@
     "4566": {
       "label": "LocalStack",
       "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "notify"
     }
   },
   // Mount SSH agent socket for Git authentication
@@ -89,7 +95,7 @@
     "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind,consistency=cached"
   ],
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "go mod download && go mod tidy && make init",
+  "postCreateCommand": "go mod download && go mod tidy && make init && make lint",
   // Comment out to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
   "remoteUser": "vscode",
   // Configure environment variables
@@ -100,6 +106,7 @@
     "AWS_SECRET_ACCESS_KEY": "test",
     "AWS_REGION": "us-east-1",
     "USE_PATH_STYLE": "true",
+    "DATABASE_URL": "postgres://gradebot:gradebot@postgres:5432/gradebot?sslmode=disable",
     "SSH_AUTH_SOCK": "/ssh-agent"
   }
 }

@@ -1,0 +1,5 @@
+Evaluate:
+1. Code organization and structure.
+2. Best practices adherence for the language(s) used.
+3. Code readability and documentation.
+4. Overall code quality.

@@ -17,6 +17,7 @@ RUN apt-get update \
     && apt-get install -y \
         curl \
         jq \
+        postgresql-client \
         python3-pip \
         unzip \
         wget \

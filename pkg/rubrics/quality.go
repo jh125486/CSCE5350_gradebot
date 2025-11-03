@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"gopkg.in/yaml.v3"
 
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"

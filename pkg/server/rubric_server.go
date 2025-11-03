@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
@@ -59,7 +59,7 @@ func (s *RubricServer) UploadRubricResult(
 	}
 
 	// Save to persistent storage
-	err := s.storage.SaveResult(ctx, result.SubmissionId, resultWithIP)
+	err := s.storage.SaveResult(ctx, resultWithIP)
 	if err != nil {
 		slog.Error("Failed to save result to storage", "error", err, "submission_id", result.SubmissionId)
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save result: %w", err))

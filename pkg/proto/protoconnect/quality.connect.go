@@ -10,7 +10,7 @@ import (
 	http "net/http"
 	strings "strings"
 
-	connect_go "github.com/bufbuild/connect-go"
+	connect "connectrpc.com/connect"
 	proto "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
@@ -19,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect_go.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// QualityServiceName is the fully-qualified name of the QualityService service.
@@ -41,7 +41,7 @@ const (
 
 // QualityServiceClient is a client for the quality.QualityService service.
 type QualityServiceClient interface {
-	EvaluateCodeQuality(context.Context, *connect_go.Request[proto.EvaluateCodeQualityRequest]) (*connect_go.Response[proto.EvaluateCodeQualityResponse], error)
+	EvaluateCodeQuality(context.Context, *connect.Request[proto.EvaluateCodeQualityRequest]) (*connect.Response[proto.EvaluateCodeQualityResponse], error)
 }
 
 // NewQualityServiceClient constructs a client for the quality.QualityService service. By default,
@@ -51,30 +51,32 @@ type QualityServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewQualityServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) QualityServiceClient {
+func NewQualityServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) QualityServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	qualityServiceMethods := proto.File_pkg_proto_quality_proto.Services().ByName("QualityService").Methods()
 	return &qualityServiceClient{
-		evaluateCodeQuality: connect_go.NewClient[proto.EvaluateCodeQualityRequest, proto.EvaluateCodeQualityResponse](
+		evaluateCodeQuality: connect.NewClient[proto.EvaluateCodeQualityRequest, proto.EvaluateCodeQualityResponse](
 			httpClient,
 			baseURL+QualityServiceEvaluateCodeQualityProcedure,
-			opts...,
+			connect.WithSchema(qualityServiceMethods.ByName("EvaluateCodeQuality")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
 // qualityServiceClient implements QualityServiceClient.
 type qualityServiceClient struct {
-	evaluateCodeQuality *connect_go.Client[proto.EvaluateCodeQualityRequest, proto.EvaluateCodeQualityResponse]
+	evaluateCodeQuality *connect.Client[proto.EvaluateCodeQualityRequest, proto.EvaluateCodeQualityResponse]
 }
 
 // EvaluateCodeQuality calls quality.QualityService.EvaluateCodeQuality.
-func (c *qualityServiceClient) EvaluateCodeQuality(ctx context.Context, req *connect_go.Request[proto.EvaluateCodeQualityRequest]) (*connect_go.Response[proto.EvaluateCodeQualityResponse], error) {
+func (c *qualityServiceClient) EvaluateCodeQuality(ctx context.Context, req *connect.Request[proto.EvaluateCodeQualityRequest]) (*connect.Response[proto.EvaluateCodeQualityResponse], error) {
 	return c.evaluateCodeQuality.CallUnary(ctx, req)
 }
 
 // QualityServiceHandler is an implementation of the quality.QualityService service.
 type QualityServiceHandler interface {
-	EvaluateCodeQuality(context.Context, *connect_go.Request[proto.EvaluateCodeQualityRequest]) (*connect_go.Response[proto.EvaluateCodeQualityResponse], error)
+	EvaluateCodeQuality(context.Context, *connect.Request[proto.EvaluateCodeQualityRequest]) (*connect.Response[proto.EvaluateCodeQualityResponse], error)
 }
 
 // NewQualityServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -82,11 +84,13 @@ type QualityServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewQualityServiceHandler(svc QualityServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	qualityServiceEvaluateCodeQualityHandler := connect_go.NewUnaryHandler(
+func NewQualityServiceHandler(svc QualityServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	qualityServiceMethods := proto.File_pkg_proto_quality_proto.Services().ByName("QualityService").Methods()
+	qualityServiceEvaluateCodeQualityHandler := connect.NewUnaryHandler(
 		QualityServiceEvaluateCodeQualityProcedure,
 		svc.EvaluateCodeQuality,
-		opts...,
+		connect.WithSchema(qualityServiceMethods.ByName("EvaluateCodeQuality")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/quality.QualityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -101,6 +105,6 @@ func NewQualityServiceHandler(svc QualityServiceHandler, opts ...connect_go.Hand
 // UnimplementedQualityServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedQualityServiceHandler struct{}
 
-func (UnimplementedQualityServiceHandler) EvaluateCodeQuality(context.Context, *connect_go.Request[proto.EvaluateCodeQualityRequest]) (*connect_go.Response[proto.EvaluateCodeQualityResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("quality.QualityService.EvaluateCodeQuality is not implemented"))
+func (UnimplementedQualityServiceHandler) EvaluateCodeQuality(context.Context, *connect.Request[proto.EvaluateCodeQualityRequest]) (*connect.Response[proto.EvaluateCodeQualityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("quality.QualityService.EvaluateCodeQuality is not implemented"))
 }

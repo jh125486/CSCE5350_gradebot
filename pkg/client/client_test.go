@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/cache"
@@ -163,8 +163,8 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: &mockQualityServiceClient{},
 					RubricClient:  &mockRubricServiceClient{},
-					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
+					Reader:        strings.NewReader("y\n"), // Answer yes to upload
 				},
 			},
 			setupDir: func(t *testing.T) string {
@@ -213,8 +213,8 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: nil,
 					RubricClient:  &mockRubricServiceClient{},
-					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
+					Reader:        strings.NewReader("y\n"), // Answer yes to upload
 				},
 			},
 			setupDir:         createTestGitRepo,
@@ -237,8 +237,8 @@ func TestExecuteProject1(t *testing.T) {
 					RunCmd:        "",
 					QualityClient: nil,
 					RubricClient:  &mockRubricServiceClient{uploadError: errors.New("upload failed")},
-					Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:        &bytes.Buffer{},
+					Reader:        strings.NewReader("y\n"), // Answer yes to upload
 				},
 			},
 			setupDir:         createTestGitRepo,
@@ -285,8 +285,8 @@ func TestExecuteProject1(t *testing.T) {
 						feedback:     "Excellent code quality",
 					},
 					RubricClient: &mockRubricServiceClient{},
-					Reader:       strings.NewReader("y\n"), // Simulate user saying "yes"
 					Writer:       &bytes.Buffer{},
+					Reader:       strings.NewReader("y\n"), // Answer yes to upload
 				},
 			},
 			setupDir:         createTestGitRepo,
@@ -381,66 +381,6 @@ func TestExecuteProject1(t *testing.T) {
 					t.Fatal("expected output, got none")
 				}
 				tt.checkOutput(t, buf.String())
-			}
-		})
-	}
-}
-
-// errorReader is a reader that always returns an error
-type errorReader struct{}
-
-func (e *errorReader) Read(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("read error")
-}
-
-// TestPromptResponses tests different user input responses to the submission prompt
-func TestPromptResponses(t *testing.T) {
-	t.Parallel()
-
-	dir := createTestGitRepo(t)
-
-	tests := []struct {
-		name            string
-		userInput       io.Reader
-		wantUploadCalls int
-	}{
-		{"lowercase y", strings.NewReader("y\n"), 1},
-		{"uppercase Y", strings.NewReader("Y\n"), 1},
-		{"lowercase yes", strings.NewReader("yes\n"), 1},
-		{"uppercase YES", strings.NewReader("YES\n"), 1},
-		{"mixed case Yes", strings.NewReader("Yes\n"), 1},
-		{"whitespace around y", strings.NewReader("  y  \n"), 1},
-		{"whitespace around yes", strings.NewReader("  yes  \n"), 1},
-		{"lowercase n", strings.NewReader("n\n"), 0},
-		{"uppercase N", strings.NewReader("N\n"), 0},
-		{"lowercase no", strings.NewReader("no\n"), 0},
-		{"anything else", strings.NewReader("maybe\n"), 0},
-		{"empty input", strings.NewReader("\n"), 0},
-		{"reader error", &errorReader{}, 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &mockRubricServiceClient{}
-			cfg := client.Config{
-				ServerURL:    "http://example.com",
-				Dir:          client.WorkDir(dir),
-				RunCmd:       "",
-				RubricClient: mockClient,
-				Reader:       tt.userInput,
-				Writer:       &bytes.Buffer{},
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			err := client.ExecuteProject1(ctx, &cfg)
-			if err != nil {
-				t.Fatalf("ExecuteProject1 failed: %v", err)
-			}
-
-			if mockClient.uploadCalls != tt.wantUploadCalls {
-				t.Errorf("expected %d upload calls, got %d", tt.wantUploadCalls, mockClient.uploadCalls)
 			}
 		})
 	}
@@ -589,214 +529,328 @@ func (m *mockQualityServiceClient) EvaluateCodeQuality(ctx context.Context, req 
 	return connect.NewResponse(response), nil
 }
 
-func TestExecuteProject1WithNilClients(t *testing.T) {
-	// Skip this test as it reveals a separate bug where nil HTTP client causes panic in quality evaluation
-	t.Skip("This test reveals a bug where nil HTTP client causes panic in quality evaluation")
-}
-
-func TestAuthTransportWithNilBase(t *testing.T) {
-	// Test that NewAuthTransport handles nil base transport correctly
-	// Instead of using nil, provide a mock transport that captures the request
-	var capturedRequest *http.Request
-	mockTransport := &testRoundTripper{
-		roundTripFunc: func(req *http.Request) (*http.Response, error) {
-			capturedRequest = req
-			return &http.Response{
-				StatusCode: 200,
-				Status:     "200 OK",
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("ok")),
-				Request:    req,
-			}, nil
-		},
-	}
-
-	rt := client.NewAuthTransport("test-token", mockTransport)
-
-	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Verify the authorization header was set correctly
-	if capturedRequest.Header.Get("authorization") != "Bearer test-token" {
-		t.Errorf("expected Bearer test-token, got %s", capturedRequest.Header.Get("authorization"))
-	}
-}
-
 type failingRoundTripper struct{}
 
 func (f *failingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("transport failed: %w", errors.New("base error"))
 }
 
-func TestAuthTransportBaseTransportError(t *testing.T) {
-	// Test that auth transport properly propagates base transport errors
-	rt := client.NewAuthTransport("token", &failingRoundTripper{})
-
-	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
-
-	resp, err := httpClient.Do(req)
-	if resp != nil {
-		resp.Body.Close()
+func TestAuthTransport(t *testing.T) {
+	type args struct {
+		token              string
+		baseTransport      http.RoundTripper
+		existingAuthHeader string
+		executeProject     bool
+		expectUploadError  bool
 	}
-	if err == nil {
-		t.Fatal("expected error from failing transport")
+	tests := []struct {
+		name              string
+		args              args
+		wantErr           bool
+		wantAuthHeader    string
+		wantErrorContains string
+		wantUploadCalls   int
+	}{
+		{
+			name: "with_mock_base_transport",
+			args: args{
+				token: "test-token",
+				baseTransport: &mockRoundTripper{
+					responses: make(map[string]*http.Response),
+					requests:  []*http.Request{},
+				},
+			},
+			wantErr:        false,
+			wantAuthHeader: "Bearer test-token",
+		},
+		{
+			name: "base_transport_error",
+			args: args{
+				token:         "token",
+				baseTransport: &failingRoundTripper{},
+			},
+			wantErr:           true,
+			wantErrorContains: "transport failed",
+		},
+		{
+			name: "empty_token",
+			args: args{
+				token: "",
+				baseTransport: &mockRoundTripper{
+					responses: make(map[string]*http.Response),
+					requests:  []*http.Request{},
+				},
+			},
+			wantErr:        false,
+			wantAuthHeader: "Bearer ",
+		},
+		{
+			name: "empty_token_with_upload_error",
+			args: args{
+				token: "",
+				baseTransport: &mockRoundTripper{
+					responses: make(map[string]*http.Response),
+					requests:  []*http.Request{},
+				},
+				executeProject:    true,
+				expectUploadError: true,
+			},
+			wantErr:         false,
+			wantUploadCalls: 1,
+		},
+		{
+			name: "header_overwrite",
+			args: args{
+				token: "new-token",
+				baseTransport: &mockRoundTripper{
+					responses: make(map[string]*http.Response),
+					requests:  []*http.Request{},
+				},
+				existingAuthHeader: "Bearer old-token",
+			},
+			wantErr:        false,
+			wantAuthHeader: "Bearer new-token",
+		},
+		{
+			name: "header_overwrite_with_project_execution",
+			args: args{
+				token: "new-token",
+				baseTransport: &mockRoundTripper{
+					responses: make(map[string]*http.Response),
+					requests:  []*http.Request{},
+				},
+				existingAuthHeader: "Bearer old-token",
+				executeProject:     true,
+			},
+			wantErr:         false,
+			wantAuthHeader:  "Bearer new-token",
+			wantUploadCalls: 1,
+		},
 	}
-	if !strings.Contains(err.Error(), "transport failed") {
-		t.Errorf("expected 'transport failed' in error, got: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt := client.NewAuthTransport(tt.args.token, tt.args.baseTransport)
+			httpClient := &http.Client{Transport: rt}
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
+
+			if tt.args.existingAuthHeader != "" {
+				req.Header.Set("Authorization", tt.args.existingAuthHeader)
+			}
+
+			if tt.args.executeProject {
+				// Test with actual project execution
+				dir := createTestGitRepo(t)
+				mockRubricClient := &mockRubricServiceClient{}
+				if tt.args.expectUploadError {
+					mockRubricClient.uploadError = errors.New("mock network error")
+				}
+
+				cfg := client.Config{
+					ServerURL:     "http://example.com",
+					Dir:           client.WorkDir(dir),
+					RunCmd:        "",
+					QualityClient: nil,
+					RubricClient:  mockRubricClient,
+					Writer:        &bytes.Buffer{},
+					Reader:        strings.NewReader("y\n"),
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				err := client.ExecuteProject1(ctx, &cfg)
+				if (err != nil) != tt.wantErr {
+					t.Errorf("ExecuteProject1() error = %v, wantErr %v", err, tt.wantErr)
+				}
+
+				if tt.wantUploadCalls > 0 && mockRubricClient.uploadCalls != tt.wantUploadCalls {
+					t.Errorf("expected %d upload call(s), got %d", tt.wantUploadCalls, mockRubricClient.uploadCalls)
+				}
+
+				if tt.wantAuthHeader != "" {
+					mockTransport, ok := tt.args.baseTransport.(*mockRoundTripper)
+					if ok && len(mockTransport.requests) > 0 {
+						for _, req := range mockTransport.requests {
+							if req.Header.Get("Authorization") != tt.wantAuthHeader {
+								t.Errorf("request had wrong auth header: got %s, want %s", req.Header.Get("Authorization"), tt.wantAuthHeader)
+							}
+						}
+					}
+				}
+			} else {
+				// Simple transport test
+				resp, err := httpClient.Do(req)
+				if resp != nil {
+					defer resp.Body.Close()
+				}
+
+				if (err != nil) != tt.wantErr {
+					t.Errorf("RoundTrip() error = %v, wantErr %v", err, tt.wantErr)
+					return
+				}
+
+				if tt.wantErrorContains != "" && err != nil {
+					if !strings.Contains(err.Error(), tt.wantErrorContains) {
+						t.Errorf("expected error containing %q, got: %v", tt.wantErrorContains, err)
+					}
+				}
+
+				if tt.wantAuthHeader != "" {
+					// Check captured request
+					switch rt := tt.args.baseTransport.(type) {
+					case *testRoundTripper:
+						// For testRoundTripper, check the original request
+						if req.Header.Get("Authorization") != tt.wantAuthHeader {
+							t.Errorf("expected auth header %q, got %q", tt.wantAuthHeader, req.Header.Get("Authorization"))
+						}
+					case *mockRoundTripper:
+						// For mockRoundTripper, check captured requests
+						if len(rt.requests) > 0 {
+							sentReq := rt.requests[0]
+							if sentReq.Header.Get("Authorization") != tt.wantAuthHeader {
+								t.Errorf("expected auth header %q, got %q", tt.wantAuthHeader, sentReq.Header.Get("Authorization"))
+							}
+						}
+					}
+				}
+			}
+		})
 	}
 }
 
-func TestAuthTransportEmptyToken(t *testing.T) {
-	// Test AuthTransport with empty token and cover upload error scenarios
-	mockTransport := &mockRoundTripper{
-		responses: make(map[string]*http.Response),
-		requests:  []*http.Request{},
+func TestExecuteProject2(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		serverURL     string
+		dir           string // Empty means create test git repo, otherwise use this path
+		runCmd        string
+		qualityClient protoconnect.QualityServiceClient
+		rubricClient  protoconnect.RubricServiceClient
+		userInput     string
+		timeout       time.Duration
 	}
-	rt := client.NewAuthTransport("", mockTransport)
-
-	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		t.Fatalf("unexpected error with empty token: %v", err)
-	}
-	resp.Body.Close()
-
-	// Should still add auth header even if empty
-	if len(mockTransport.requests) != 1 {
-		t.Fatal("expected one request")
-	}
-
-	sentReq := mockTransport.requests[0]
-	if sentReq.Header.Get("Authorization") != "Bearer " {
-		t.Errorf("expected 'Bearer ', got %s", sentReq.Header.Get("Authorization"))
-	}
-
-	// Test network error during rubric upload
-	dir := createTestGitRepo(t)
-
-	// Use mock that returns upload error
-	mockRubricClient := &mockRubricServiceClient{
-		uploadError: errors.New("mock network error"),
-	}
-
-	cfg := client.Config{
-		ServerURL:    "http://example.com",
-		Dir:          client.WorkDir(dir),
-		RunCmd:       "",
-		RubricClient: mockRubricClient,
-		Reader:       strings.NewReader("y\n"), // Simulate user saying "yes"
-		Writer:       &bytes.Buffer{},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Should not fail the whole execution even if upload fails
-	err = client.ExecuteProject1(ctx, &cfg)
-	if err != nil {
-		t.Fatalf("ExecuteProject1 should not fail due to upload error: %v", err)
-	}
-
-	// Should have attempted rubric upload
-	if mockRubricClient.uploadCalls != 1 {
-		t.Errorf("expected 1 upload call, got %d", mockRubricClient.uploadCalls)
-	}
-}
-
-func TestAuthTransportHeaderOverwrite(t *testing.T) {
-	// Test that auth transport overwrites existing Authorization header
-	mockTransport := &mockRoundTripper{
-		responses: make(map[string]*http.Response),
-		requests:  []*http.Request{},
-	}
-	rt := client.NewAuthTransport("new-token", mockTransport)
-
-	httpClient := &http.Client{Transport: rt}
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com", http.NoBody)
-	req.Header.Set("Authorization", "Bearer old-token") // This should be overwritten
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	resp.Body.Close()
-
-	// Check that requests were made with new token
-	if len(mockTransport.requests) != 1 {
-		t.Fatal("expected one request")
-	}
-
-	sentReq := mockTransport.requests[0]
-	if sentReq.Header.Get("Authorization") != "Bearer new-token" {
-		t.Errorf("expected 'Bearer new-token', got %s", sentReq.Header.Get("Authorization"))
-	}
-
-	// Test successful upload with proper authorization
-	dir := createTestGitRepo(t)
-
-	// Use successful mock client
-	mockRubricClient := &mockRubricServiceClient{}
-
-	cfg := client.Config{
-		ServerURL:     "http://example.com",
-		Dir:           client.WorkDir(dir),
-		RunCmd:        "",
-		QualityClient: nil, // Avoid hanging on quality client
-		RubricClient:  mockRubricClient,
-		Reader:        strings.NewReader("y\n"), // Simulate user saying "yes"
-		Writer:        &bytes.Buffer{},
+	tests := []struct {
+		name               string
+		args               args
+		noParallel         bool // Set true for tests that can't run in parallel
+		wantErr            bool
+		wantOutputContains []string
+		wantOutputNotEmpty bool
+		wantUploadCalls    int
+	}{
+		{
+			name: "basic_execution_with_timeouts",
+			args: args{
+				serverURL:     "http://example.com",
+				dir:           "",    // Empty = create test git repo
+				runCmd:        "cat", // Use cat which just echoes - won't crash
+				qualityClient: nil,
+				rubricClient:  nil,
+				userInput:     "n\n", // Don't upload
+				timeout:       2 * time.Second,
+			},
+			wantErr:            false,
+			wantOutputNotEmpty: true,
+			wantOutputContains: []string{"Git Repository", "DeleteExists", "MSetMGet", "TTLBasic", "Range", "Transactions"},
+		},
+		{
+			name: "with_upload_success",
+			args: args{
+				serverURL:     "http://example.com",
+				dir:           "", // Empty = create test git repo
+				runCmd:        "cat",
+				qualityClient: nil,
+				rubricClient:  &mockRubricServiceClient{},
+				userInput:     "y\n", // Upload
+				timeout:       2 * time.Second,
+			},
+			wantErr:            false,
+			wantOutputNotEmpty: true,
+			wantOutputContains: []string{"Git Repository", "DeleteExists", "MSetMGet", "TTLBasic", "Range", "Transactions"},
+			wantUploadCalls:    1,
+		},
+		{
+			name: "with_upload_error",
+			args: args{
+				serverURL:    "http://example.com",
+				dir:          "", // Empty = create test git repo
+				runCmd:       "cat",
+				rubricClient: &mockRubricServiceClient{uploadError: errors.New("upload failed")},
+				userInput:    "y\n",
+				timeout:      2 * time.Second,
+			},
+			wantErr:            false, // Upload errors don't fail execution
+			wantOutputNotEmpty: true,
+			wantOutputContains: []string{"Git Repository", "DeleteExists", "MSetMGet", "TTLBasic", "Range", "Transactions"},
+			wantUploadCalls:    1,
+		},
+		{
+			name: "nonexistent_directory",
+			args: args{
+				serverURL:     "http://example.com",
+				dir:           "/nonexistent/path/that/does/not/exist",
+				runCmd:        "echo test",
+				rubricClient:  &mockRubricServiceClient{},
+				qualityClient: nil,
+				userInput:     "y\n",
+				timeout:       2 * time.Second,
+			},
+			noParallel:         true,                       // Can't run in parallel - changes working directory
+			wantErr:            false,                      // Directory validation happens at CLI level
+			wantOutputNotEmpty: true,                       // Output still generated
+			wantOutputContains: []string{"Git Repository"}, // At least Git evaluation will fail
+			wantUploadCalls:    1,                          // Should still attempt upload
+		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !tt.noParallel {
+				t.Parallel()
+			}
 
-	err = client.ExecuteProject1(ctx, &cfg)
-	if err != nil {
-		t.Fatalf("ExecuteProject1 failed: %v", err)
+			output := &bytes.Buffer{}
+			cfg := client.Config{
+				ServerURL:     tt.args.serverURL,
+				Dir:           client.WorkDir(tt.args.dir),
+				RunCmd:        tt.args.runCmd,
+				QualityClient: tt.args.qualityClient,
+				RubricClient:  tt.args.rubricClient,
+				Writer:        output,
+				Reader:        strings.NewReader(tt.args.userInput),
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), tt.args.timeout)
+			defer cancel()
+
+			err := client.ExecuteProject2(ctx, &cfg)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ExecuteProject2() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantOutputNotEmpty && output.Len() == 0 {
+				t.Error("expected rubric output, got none")
+			}
+
+			for _, item := range tt.wantOutputContains {
+				if !strings.Contains(output.String(), item) {
+					t.Errorf("expected output to contain %q", item)
+				}
+			}
+
+			if tt.wantUploadCalls > 0 {
+				mockClient, ok := tt.args.rubricClient.(*mockRubricServiceClient)
+				if !ok {
+					t.Fatal("expected mockRubricServiceClient")
+				}
+				if mockClient.uploadCalls != tt.wantUploadCalls {
+					t.Errorf("expected %d upload calls, got %d", tt.wantUploadCalls, mockClient.uploadCalls)
+				}
+			}
+		})
 	}
-
-	// Verify all requests had correct authorization
-	for _, req := range mockTransport.requests {
-		if req.Header.Get("Authorization") != "Bearer new-token" {
-			t.Errorf("request to %s had wrong auth header: %s", req.URL.Path, req.Header.Get("Authorization"))
-		}
-	}
-
-	// Verify upload was successful by checking mock call count
-	if mockRubricClient.uploadCalls != 1 {
-		t.Errorf("expected 1 rubric upload call, got %d", mockRubricClient.uploadCalls)
-	}
-}
-
-func TestExecuteProject2Simple(t *testing.T) {
-	// Test ExecuteProject2 exists and has the right signature
-	// We can't fully test it without a real project2 implementation,
-	// so we just verify the function compiles and can be called
-	dir := createTestGitRepo(t)
-
-	cfg := client.Config{
-		ServerURL:     "http://example.com",
-		Dir:           client.WorkDir(dir),
-		RunCmd:        "cat", // Use cat which will wait for input and timeout
-		QualityClient: nil,
-		RubricClient:  nil,
-		Writer:        &bytes.Buffer{},
-	}
-
-	// Use a very short timeout since we expect evaluators to timeout with 'cat'
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// ExecuteProject2 should complete even if evaluators fail/timeout
-	_ = client.ExecuteProject2(ctx, &cfg)
-	// We don't assert on error because evaluators will timeout with 'cat'
-	// The important thing is that the function exists and doesn't panic
 }

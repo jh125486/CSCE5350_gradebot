@@ -247,7 +247,6 @@ type MockCommandFactory struct {
 	mock.Mock
 }
 
-//nolint:ireturn // returns billy.Filesystem
 func (m *MockCommandFactory) New(name string, arg ...string) rubrics.Commander {
 	args := m.Called(name, arg)
 	return args.Get(0).(rubrics.Commander)
