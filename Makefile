@@ -34,7 +34,7 @@ lint: golangci-lint modernize
 ## golangci-lint: Run golangci-lint
 golangci-lint:
 	@echo "Running $$(golangci-lint version)..."
-	@golangci-lint run --fix ./...
+	@golangci-lint run ./...
 
 ## modernize: Check for outdated Go patterns and suggest improvements
 modernize:

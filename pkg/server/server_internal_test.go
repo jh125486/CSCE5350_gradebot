@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
-	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
@@ -86,17 +86,6 @@ const (
 	testPaginationList           = "<ul class=\"pagination"
 	testPaginationUpdateURL      = "hx-push-url=\"true\""
 )
-
-// mockReviewer implements the openai.Reviewer interface for tests.
-type mockReviewer struct {
-	review *openai.AIReview
-	err    error
-}
-
-func (m *mockReviewer) ReviewCode(ctx context.Context, instructions string, files []*pb.File) (*openai.AIReview, error) {
-	// tests pass a single file in these cases
-	return m.review, m.err
-}
 
 // mockStorage implements the storage.Storage interface for tests.
 type mockStorage struct {
@@ -310,13 +299,6 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Set the request on the response and return it
 	m.response.Request = req
 	return m.response, nil
-}
-
-// errorRoundTripper always returns an error
-type errorRoundTripper struct{}
-
-func (e *errorRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return nil, fmt.Errorf("network error")
 }
 
 func TestRealIPMiddleware(t *testing.T) {
@@ -627,7 +609,7 @@ func TestServeSubmissionsPageErrorCases(t *testing.T) {
 	}{
 		{
 			name:               "StorageListError",
-			storageError:       fmt.Errorf(testStorageConnFailed),
+			storageError:       errors.New(testStorageConnFailed),
 			expectedStatusCode: http.StatusInternalServerError,
 			expectedContent:    testInternalServerError,
 		},

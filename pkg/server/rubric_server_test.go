@@ -16,13 +16,6 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
-// Test constants for rubric server testing
-const (
-	geoLocalIP         = "Local/Unknown"
-	geoUnknownLocation = "Unknown"
-	testGeoIP          = "1.1.1.1"
-)
-
 // TestNewRubricServer tests the NewRubricServer constructor
 func TestNewRubricServer(t *testing.T) {
 	t.Parallel()
@@ -44,7 +37,6 @@ func TestNewRubricServer(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			rs := server.NewRubricServer(tt.storage)
@@ -72,7 +64,7 @@ func TestGeoLocationClientDo(t *testing.T) {
 	tests := []struct {
 		name             string
 		ip               string
-		mockResponse     interface{}
+		mockResponse     any
 		mockStatusCode   int
 		mockError        error
 		expectedLocation string
@@ -132,7 +124,6 @@ func TestGeoLocationClientDo(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

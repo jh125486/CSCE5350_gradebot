@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -91,9 +92,7 @@ func (m *mockStorage) ListResultsPaginated(ctx context.Context, params storage.L
 	defer m.mu.RUnlock()
 	results = make(map[string]*pb.Result)
 	totalCount = len(m.results)
-	for k, v := range m.results {
-		results[k] = v
-	}
+	maps.Copy(results, m.results)
 	return results, totalCount, nil
 }
 
@@ -138,7 +137,6 @@ func TestStart(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := server.Config{
@@ -182,7 +180,6 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
@@ -258,7 +255,6 @@ func TestEvaluateCodeQualityBehaviors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := tt.setupCtx()
@@ -346,7 +342,6 @@ func TestUploadRubricResult(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -422,7 +417,6 @@ func TestAuthRubricHandler(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
