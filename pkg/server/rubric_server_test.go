@@ -16,6 +16,12 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
+// Test constants
+const (
+	testLocalUnknown = "Local/Unknown"
+	testIP1dot1dot1  = "1.1.1.1"
+)
+
 // TestNewRubricServer tests the NewRubricServer constructor
 func TestNewRubricServer(t *testing.T) {
 	t.Parallel()
@@ -84,35 +90,35 @@ func TestGeoLocationClientDo(t *testing.T) {
 			name:             "LocalhostIP",
 			ip:               "127.0.0.1",
 			mockStatusCode:   http.StatusOK,
-			expectedLocation: "Local/Unknown", // Should skip lookup
+			expectedLocation: testLocalUnknown, // Should skip lookup
 		},
 		{
 			name:             "EmptyIP",
 			ip:               "",
 			mockStatusCode:   http.StatusOK,
-			expectedLocation: "Local/Unknown", // Should skip lookup
+			expectedLocation: testLocalUnknown, // Should skip lookup
 		},
 		{
 			name:             "IPv6Loopback",
 			ip:               "::1",
 			mockStatusCode:   http.StatusOK,
-			expectedLocation: "Local/Unknown", // Should skip lookup
+			expectedLocation: testLocalUnknown, // Should skip lookup
 		},
 		{
 			name:             "NetworkError",
-			ip:               "1.1.1.1",
+			ip:               testIP1dot1dot1,
 			mockError:        errors.New("connection refused"),
 			expectedLocation: "Unknown",
 		},
 		{
 			name:             "HTTP400Status",
-			ip:               "1.1.1.1",
+			ip:               testIP1dot1dot1,
 			mockStatusCode:   http.StatusBadRequest,
 			expectedLocation: "Unknown",
 		},
 		{
 			name: "PartialGeoData",
-			ip:   "1.1.1.1",
+			ip:   testIP1dot1dot1,
 			mockResponse: map[string]string{
 				"city":         "Sydney",
 				"region":       "",

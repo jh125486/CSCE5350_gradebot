@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -61,13 +62,18 @@ func (s *RubricServer) UploadRubricResult(
 	// Save to persistent storage
 	err := s.storage.SaveResult(ctx, resultWithIP)
 	if err != nil {
-		contextlog.From(ctx).Error("Failed to save result to storage", "error", err, "submission_id", result.SubmissionId)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to save result to storage",
+			slog.Any("error", err),
+			slog.String("submission_id", result.SubmissionId),
+		)
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save result: %w", err))
 	}
 
-	contextlog.From(ctx).Info("Stored rubric result",
-		"submission_id", result.SubmissionId, "items", len(result.Rubric),
-		"ip", clientIP, "location", geoLocation)
+	contextlog.From(ctx).InfoContext(ctx, "Stored rubric result",
+		slog.String("submission_id", result.SubmissionId),
+		slog.Int("items", len(result.Rubric)),
+		slog.String("ip", clientIP),
+		slog.String("location", geoLocation))
 
 	return connect.NewResponse(&proto.UploadRubricResultResponse{
 		SubmissionId: result.SubmissionId,
@@ -101,25 +107,36 @@ func (c *GeoLocationClient) Do(ctx context.Context, ip string) string {
 
 	req, err := newGeoRequest(ip)
 	if err != nil {
-		contextlog.From(ctx).Warn("Failed to create geo location request", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to create geo location request",
+			slog.String("ip", ip),
+			slog.Any("error", err))
 		return unknownLocation
 	}
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		contextlog.From(ctx).Warn("Failed to fetch geo location", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to fetch geo location",
+			slog.String("ip", ip),
+			slog.Any("error", err),
+		)
 		return unknownLocation
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		contextlog.From(ctx).Warn("Geo location API returned non-200 status", "ip", ip, "status", resp.StatusCode)
+		contextlog.From(ctx).WarnContext(ctx, "Geo location API returned non-200 status",
+			slog.String("ip", ip),
+			slog.Int("status", resp.StatusCode),
+		)
 		return unknownLocation
 	}
 
 	geo, err := decodeGeoLocation(resp.Body)
 	if err != nil {
-		contextlog.From(ctx).Warn("Failed to parse geo location response", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to parse geo location response",
+			slog.String("ip", ip),
+			slog.Any("error", err),
+		)
 		return unknownLocation
 	}
 

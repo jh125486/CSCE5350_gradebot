@@ -3,7 +3,6 @@ package contextlog
 
 import (
 	"context"
-	"io"
 	"log/slog"
 )
 
@@ -27,5 +26,5 @@ func From(ctx context.Context) *slog.Logger {
 // DiscardLogger returns a logger that discards all output.
 // Useful for tests to suppress logging.
 func DiscardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime"
 	"sync"
 	"time"
@@ -63,9 +64,15 @@ func NewR2Storage(ctx context.Context, cfg *R2Config) (*R2Storage, error) {
 	}
 
 	if cfg.UsePathStyle {
-		contextlog.From(ctx).Info("Using path-style addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+		contextlog.From(ctx).InfoContext(ctx, "Using path-style addressing for storage",
+			slog.String("endpoint", cfg.Endpoint),
+			slog.String("region", region),
+		)
 	} else {
-		contextlog.From(ctx).Info("Using virtual-hosted addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+		contextlog.From(ctx).InfoContext(ctx, "Using virtual-hosted addressing for storage",
+			slog.String("endpoint", cfg.Endpoint),
+			slog.String("region", region),
+		)
 	}
 
 	awsCfg, err := config.LoadDefaultConfig(ctx,
@@ -130,10 +137,10 @@ func (r *R2Storage) SaveResult(ctx context.Context, result *proto.Result) error 
 		return fmt.Errorf("failed to save result to R2: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Saved rubric result",
-		"submission_id", result.SubmissionId,
-		"bucket", r.bucket,
-		"duration", time.Since(start),
+	contextlog.From(ctx).InfoContext(ctx, "Saved rubric result",
+		slog.String("submission_id", result.SubmissionId),
+		slog.String("bucket", r.bucket),
+		slog.Duration("duration", time.Since(start)),
 	)
 
 	return nil
@@ -165,10 +172,10 @@ func (r *R2Storage) LoadResult(ctx context.Context, submissionID string) (*proto
 	if err := unmarshaler.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode result: %w", err)
 	}
-	contextlog.From(ctx).Info("Loaded rubric result",
-		"submission_id", submissionID,
-		"bucket", r.bucket,
-		"duration", time.Since(start),
+	contextlog.From(ctx).InfoContext(ctx, "Loaded rubric result",
+		slog.String("submission_id", submissionID),
+		slog.String("bucket", r.bucket),
+		slog.Duration("duration", time.Since(start)),
 	)
 
 	return &result, nil
@@ -232,13 +239,13 @@ func (r *R2Storage) ListResultsPaginated(ctx context.Context, params ListResults
 	pageKeys := allKeys[startIdx:endIdx]
 	results = r.loadResultsParallel(ctx, pageKeys)
 
-	contextlog.From(ctx).Info("Listed paginated rubric results",
-		"page", params.Page,
-		"page_size", params.PageSize,
-		"total_count", totalCount,
-		"returned", len(results),
-		"bucket", r.bucket,
-		"duration", time.Since(start),
+	contextlog.From(ctx).InfoContext(ctx, "Listed paginated rubric results",
+		slog.Int("page", params.Page),
+		slog.Int("page_size", params.PageSize),
+		slog.Int("total_count", totalCount),
+		slog.Int("returned", len(results)),
+		slog.String("bucket", r.bucket),
+		slog.Duration("duration", time.Since(start)),
 	)
 
 	return results, totalCount, nil
@@ -258,7 +265,10 @@ func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[
 			submissionID := key[12 : len(key)-5] // Remove "submissions/" prefix and ".json" suffix
 			result, err := r.LoadResult(ctx, submissionID)
 			if err != nil {
-				contextlog.From(ctx).Warn("Failed to load result", "submission_id", submissionID, "error", err)
+				contextlog.From(ctx).WarnContext(ctx, "Failed to load result",
+					slog.String("submission_id", submissionID),
+					slog.Any("error", err),
+				)
 				return nil // Don't fail entire batch on single error
 			}
 
@@ -272,7 +282,7 @@ func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[
 
 	// Wait for all goroutines to complete
 	if err := wg.Wait(); err != nil {
-		contextlog.From(ctx).Error("Error loading results in parallel", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "Error loading results in parallel", slog.Any("error", err))
 	}
 
 	return results
@@ -287,7 +297,7 @@ func (r *R2Storage) ensureBucketExists(ctx context.Context) error {
 	})
 	if err != nil {
 		// If bucket doesn't exist, try to create it
-		contextlog.From(ctx).Info("Bucket does not exist, attempting to create", "bucket", r.bucket)
+		contextlog.From(ctx).InfoContext(ctx, "Bucket does not exist, attempting to create", slog.String("bucket", r.bucket))
 
 		_, createErr := r.client.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: &r.bucket,
@@ -297,11 +307,11 @@ func (r *R2Storage) ensureBucketExists(ctx context.Context) error {
 			return fmt.Errorf("failed to create bucket %s: %w", r.bucket, createErr)
 		}
 
-		contextlog.From(ctx).Info("Successfully created bucket", "bucket", r.bucket)
+		contextlog.From(ctx).InfoContext(ctx, "Successfully created bucket", slog.String("bucket", r.bucket))
 		return nil
 	}
 
-	contextlog.From(ctx).Info("Bucket already exists", "bucket", r.bucket)
+	contextlog.From(ctx).InfoContext(ctx, "Bucket already exists", slog.String("bucket", r.bucket))
 	return nil
 }
 

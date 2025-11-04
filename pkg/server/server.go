@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -128,7 +129,6 @@ func NewTemplateManager() *TemplateManager {
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
 	}
-
 	templatesDir := filepath.Join("templates", submissionsTmplFile)
 	return &TemplateManager{
 		submissionsTmpl: template.Must(
@@ -190,7 +190,7 @@ type QualityServer struct {
 
 // Start handles the server mode logic
 func Start(ctx context.Context, cfg Config) error {
-	contextlog.From(ctx).Info("Server will start on port", "port", cfg.Port)
+	contextlog.From(ctx).InfoContext(ctx, "Server will start on port", slog.String("port", cfg.Port))
 	var lc net.ListenConfig
 	lis, err := lc.Listen(ctx, "tcp", ":"+cfg.Port)
 	if err != nil {
@@ -233,7 +233,7 @@ func Start(ctx context.Context, cfg Config) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
 	}
-	contextlog.From(ctx).Info("Connect HTTP server listening", "port", cfg.Port)
+	contextlog.From(ctx).InfoContext(ctx, "Connect HTTP server listening", slog.String("port", cfg.Port))
 
 	// Run Serve in goroutine so we can respond to ctx cancellation and
 	// attempt graceful shutdown.
@@ -276,7 +276,10 @@ func parseSubmissionsFromResults(ctx context.Context, results map[string]*pb.Res
 
 		timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 		if err != nil {
-			contextlog.From(ctx).Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+			contextlog.From(ctx).ErrorContext(ctx, "Failed to parse timestamp",
+				slog.Any("error", err),
+				slog.String("timestamp", result.Timestamp),
+			)
 			timestamp = time.Now()
 		}
 
@@ -343,7 +346,8 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		PageSize: pageSize,
 	})
 	if err != nil {
-		contextlog.From(ctx).Error("Failed to list paginated results from storage", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to list paginated results from storage",
+			slog.Any("error", err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -368,18 +372,18 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		HasNextPage:      page < totalPages,
 	}
 
-	contextlog.From(ctx).Info("Serving submissions page",
-		"total_submissions", totalCount,
-		"page", page,
-		"total_pages", totalPages,
-		"page_submissions", len(submissions))
+	contextlog.From(ctx).InfoContext(ctx, "Serving submissions page",
+		slog.Int("total_submissions", totalCount),
+		slog.Int("page", page),
+		slog.Int("total_pages", totalPages),
+		slog.Int("page_submissions", len(submissions)))
 
 	// Check if this is an HTMX request (partial update)
 	if r.Header.Get("HX-Request") == "true" {
 		// Return only table content for HTMX
 		w.Header().Set(contentTypeHeader, htmlContentType)
 		if err := executeTableContent(w, &data, rubricServer); err != nil {
-			contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
+			contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 			return
 		}
@@ -388,7 +392,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 
 	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
-		contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
@@ -411,7 +415,9 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	ctx := r.Context()
 	result, err := rubricServer.storage.LoadResult(ctx, submissionID)
 	if err != nil {
-		contextlog.From(ctx).Error("Failed to load result from storage", "error", err, "submission_id", submissionID)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to load result from storage",
+			slog.Any("error", err),
+			slog.String("submission_id", submissionID))
 		http.Error(w, "Submission not found", http.StatusNotFound)
 		return
 	}
@@ -432,7 +438,10 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	// Parse timestamp
 	timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 	if err != nil {
-		contextlog.From(ctx).Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to parse timestamp",
+			slog.Any("error", err),
+			slog.String("timestamp", result.Timestamp),
+		)
 		timestamp = time.Now()
 	}
 
@@ -468,7 +477,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 
 	if err := rubricServer.templates.submissionTmpl.Execute(w, data); err != nil {
-		contextlog.From(ctx).Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
@@ -483,7 +492,13 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				contextlog.From(r.Context()).Info("Request completed", "IP", r.RemoteAddr, "duration", duration)
+				ctx := r.Context()
+				contextlog.From(ctx).InfoContext(
+					ctx,
+					"Request completed",
+					slog.String("IP", r.RemoteAddr),
+					slog.Duration("duration", duration),
+				)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -504,14 +519,19 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 		// No auth required, or auth passed - proceed
 		handler.ServeHTTP(w, r)
 	})
-} // AuthMiddleware returns an http.Handler middleware that enforces authorization
+}
+
+// AuthMiddleware returns an http.Handler middleware that enforces authorization
 func AuthMiddleware(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				contextlog.From(r.Context()).Info("Request completed", "IP", r.RemoteAddr, "duration", duration)
+				contextlog.From(r.Context()).InfoContext(r.Context(), "Request completed",
+					slog.String("IP", r.RemoteAddr),
+					slog.Duration("duration", duration),
+				)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -569,7 +589,7 @@ func (s *QualityServer) EvaluateCodeQuality(
 
 	review, err := s.OpenAIClient.ReviewCode(ctx, req.Msg.Instructions, req.Msg.Files)
 	if err != nil {
-		contextlog.From(ctx).Error("failed to review code", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "failed to review code", slog.Any("error", err))
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to review code"))
 	}
 

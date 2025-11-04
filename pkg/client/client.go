@@ -143,7 +143,7 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // If Reader is nil, defaults to os.Stdin for user input.
 func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) error {
 	if cfg.RubricClient == nil {
-		contextlog.From(ctx).Info("Skipping upload - no rubric client configured")
+		contextlog.From(ctx).InfoContext(ctx, "Skipping upload - no rubric client configured")
 		return nil
 	}
 
@@ -176,9 +176,9 @@ func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) err
 		return fmt.Errorf("failed to upload result: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Successfully uploaded rubric result",
-		"submission_id", result.SubmissionID,
-		"response", resp.Msg,
+	contextlog.From(ctx).InfoContext(ctx, "Successfully uploaded rubric result",
+		slog.String("submission_id", result.SubmissionID),
+		slog.String("response", resp.Msg.Message),
 	)
 
 	return nil
@@ -201,7 +201,7 @@ func promptForSubmission(ctx context.Context, w io.Writer, r io.Reader) bool {
 	bufReader := bufio.NewReader(r)
 	resp, err := bufReader.ReadString('\n')
 	if err != nil {
-		contextlog.From(ctx).Warn("Failed to read user input", "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to read user input", slog.Any("error", err))
 		return false
 	}
 
@@ -242,7 +242,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, cfg.CommandFactory)
 	defer func() {
 		if err := program.Kill(); err != nil {
-			contextlog.From(ctx).Error("failed to kill program", slog.Any("error", err))
+			contextlog.From(ctx).ErrorContext(ctx, "failed to kill program", slog.Any("error", err))
 		}
 	}()
 
@@ -251,7 +251,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 
 	// Reset to ensure clean state before running evaluators
 	if err := rubrics.Reset(program); err != nil {
-		contextlog.From(ctx).Error("failed to reset program state", slog.Any("error", err))
+		contextlog.From(ctx).ErrorContext(ctx, "failed to reset program state", slog.Any("error", err))
 		return err
 	}
 
@@ -271,7 +271,7 @@ func executeProject(ctx context.Context, cfg *Config, name string, items ...rubr
 
 	// Upload the results to the server with user confirmation
 	if err := cfg.UploadResult(ctx, results); err != nil {
-		contextlog.From(ctx).Error("Failed to upload rubric result", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to upload rubric result", slog.Any("error", err))
 		// Don't fail the whole execution just because upload failed
 	}
 

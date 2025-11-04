@@ -40,7 +40,7 @@ func NewSQLStorage(ctx context.Context, databaseURL string) (*SQLStorage, error)
 	// Verify connection
 	if err := db.PingContext(ctx); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
-			contextlog.From(ctx).Error("failed to close database after ping error", "error", closeErr)
+			contextlog.From(ctx).ErrorContext(ctx, "failed to close database after ping error", slog.Any("error", closeErr))
 		}
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -53,7 +53,7 @@ func NewSQLStorage(ctx context.Context, databaseURL string) (*SQLStorage, error)
 		return nil, fmt.Errorf("failed to ensure table exists: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Connected to SQL database")
+	contextlog.From(ctx).InfoContext(ctx, "Connected to SQL database")
 
 	return storage, nil
 }
@@ -76,7 +76,7 @@ func (s *SQLStorage) ensureTableExists(ctx context.Context) error {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Ensured submissions table exists")
+	contextlog.From(ctx).InfoContext(ctx, "Ensured submissions table exists")
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (s *SQLStorage) SaveResult(ctx context.Context, result *proto.Result) error
 		return fmt.Errorf("failed to save result to database: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Saved rubric result",
+	contextlog.From(ctx).InfoContext(ctx, "Saved rubric result",
 		slog.String("submission_id", result.SubmissionId),
 		slog.String("project", result.Project),
 		slog.Duration("duration", time.Since(start)),
@@ -144,7 +144,7 @@ func (s *SQLStorage) LoadResult(ctx context.Context, submissionID string) (*prot
 		return nil, fmt.Errorf("failed to decode result: %w", err)
 	}
 
-	contextlog.From(ctx).Info("Loaded rubric result",
+	contextlog.From(ctx).InfoContext(ctx, "Loaded rubric result",
 		slog.String("submission_id", submissionID),
 		slog.Duration("duration", time.Since(start)),
 	)
@@ -201,13 +201,16 @@ func (s *SQLStorage) ListResultsPaginated(
 		var submissionID string
 		var resultJSON []byte
 		if err := rows.Scan(&submissionID, &resultJSON); err != nil {
-			logger.Warn("Failed to scan row", "error", err)
+			logger.WarnContext(ctx, "Failed to scan row", slog.Any("error", err))
 			continue
 		}
 
 		var result proto.Result
 		if err := unmarshaler.Unmarshal(resultJSON, &result); err != nil {
-			logger.Warn("Failed to unmarshal result", "submission_id", submissionID, "error", err)
+			logger.WarnContext(ctx, "Failed to unmarshal result",
+				slog.String("submission_id", submissionID),
+				slog.Any("error", err),
+			)
 			continue
 		}
 
@@ -218,7 +221,7 @@ func (s *SQLStorage) ListResultsPaginated(
 		return nil, 0, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	logger.Info("Listed paginated rubric results",
+	contextlog.From(ctx).InfoContext(ctx, "Listed paginated rubric results",
 		slog.Int("page", params.Page),
 		slog.Int("page_size", params.PageSize),
 		slog.Int("total_count", totalCount),

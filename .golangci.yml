@@ -35,6 +35,7 @@ linters:
     - ineffassign
     - interfacebloat
     - lll
+    - loggercheck
     - makezero
     - nakedret
     - nestif
@@ -47,6 +48,7 @@ linters:
     - revive
     - rowserrcheck
     - sqlclosecheck
+    - sloglint
     - staticcheck
     - thelper
     - tparallel
@@ -77,6 +79,11 @@ linters:
       line-length: 140
     nakedret:
       max-func-lines: 50
+    sloglint:
+      attr-only: true
+      context: "all"
+      no-global: "all"
+      args-on-sep-lines: true
     staticcheck:
       checks: 
         - all

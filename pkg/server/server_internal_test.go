@@ -85,6 +85,10 @@ const (
 	testPageNavigation           = "<nav aria-label=\"Page navigation\""
 	testPaginationList           = "<ul class=\"pagination"
 	testPaginationUpdateURL      = "hx-push-url=\"true\""
+	testRealIP                   = "127.0.0.1"
+	testLocation                 = "Test Location"
+	testPageItemDisabled         = "page-item disabled"
+	testTotalPaginationItems     = "525 total"
 )
 
 // mockStorage implements the storage.Storage interface for tests.
@@ -317,7 +321,7 @@ func TestRealIPMiddleware(t *testing.T) {
 		{
 			name:           "Localhost",
 			requestIP:      "127.0.0.1:8080",
-			expectedRealIP: "127.0.0.1",
+			expectedRealIP: testRealIP,
 		},
 	}
 
@@ -447,7 +451,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 					Rubric: []*pb.RubricItem{
 						{Name: testItem1, Points: 0.0, Awarded: 0.0, Note: testRubricNote4},
 					},
-					IpAddress:   "127.0.0.1",
+					IpAddress:   testRealIP,
 					GeoLocation: localUnknown,
 				},
 			},
@@ -470,7 +474,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 			server := NewRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/submissions", http.NoBody)
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, testSubmissionsPath, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -480,16 +484,16 @@ func TestServeSubmissionsPage(t *testing.T) {
 			assert.Equal(t, tt.expectedStatusCode, rr.Code)
 
 			// Check content type
-			assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+			assert.Equal(t, testHTMXContentType, rr.Header().Get("Content-Type"))
 
 			// Check response body contains expected content
 			body := rr.Body.String()
 			for _, expected := range tt.expectedContent {
-				assert.Contains(t, body, expected, "Response should contain: %s", expected)
+				assert.Contains(t, body, expected, testResponseShouldContain, expected)
 			}
 
 			// Verify it's valid HTML (contains basic HTML structure)
-			assert.Contains(t, body, "<!DOCTYPE html>")
+			assert.Contains(t, body, testDoctype)
 		})
 	}
 }
@@ -563,7 +567,7 @@ func TestServeSubmissionsPageHTMX(t *testing.T) {
 					SubmissionId: submissionID,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
+						{Name: testItem1, Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
 					},
 					IpAddress:   fmt.Sprintf("192.168.1.%d", i%256),
 					GeoLocation: "Test City",
@@ -626,7 +630,7 @@ func TestServeSubmissionsPageErrorCases(t *testing.T) {
 			server := newMockRubricServer(mockStore)
 
 			// Create a test request
-			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/submissions", http.NoBody)
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, testSubmissionsPath, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			// Call the handler
@@ -687,7 +691,7 @@ func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 			{Name: testItem1, Points: 10.0, Awarded: 8.0, Note: testRubricNote1},
 		},
 		IpAddress:   testIP2,
-		GeoLocation: "Test Location",
+		GeoLocation: testLocation,
 	}
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	err := mockStore.SaveResult(ctx, result)
@@ -696,7 +700,7 @@ func TestServeSubmissionsPageTimestampParseError(t *testing.T) {
 	server := newMockRubricServer(mockStore)
 
 	// Create a test request
-	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/submissions", http.NoBody)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, testSubmissionsPath, http.NoBody)
 	rr := httptest.NewRecorder()
 
 	// Call the handler
@@ -768,7 +772,7 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 					Rubric: []*pb.RubricItem{
 						{Name: testItem1, Points: 0.0, Awarded: 0.0, Note: testRubricNote4},
 					},
-					IpAddress:   "127.0.0.1",
+					IpAddress:   testRealIP,
 					GeoLocation: localUnknown,
 				},
 			},
@@ -784,56 +788,61 @@ func TestServeSubmissionDetailPage(t *testing.T) {
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric:       []*pb.RubricItem{},
 					IpAddress:    testIP5,
-					GeoLocation:  "Test Location",
+					GeoLocation:  testLocation,
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{testSubmissionID3, "0.0%", "0.0", "0.0", testIP5, "Test Location"},
+			expectedContent:    []string{testSubmissionID3, "0.0%", "0.0", "0.0", testIP5, testLocation},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
-			// Create a test server with mock storage
-			mockStore := newMockStorage()
-			for _, result := range tt.setupResults {
-				err := mockStore.SaveResult(ctx, result)
-				assert.NoError(t, err)
-			}
-			server := NewRubricServer(mockStore)
-
-			// Create a test request
-			req := httptest.NewRequestWithContext(ctx, http.MethodGet, tt.urlPath, http.NoBody)
-			rr := httptest.NewRecorder()
-
-			// Call the handler
-			serveSubmissionDetailPage(rr, req, server)
-
-			// Check status code
-			assert.Equal(t, tt.expectedStatusCode, rr.Code)
-
-			if tt.expectedStatusCode == http.StatusOK {
-				// Check content type
-				assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
-
-				// Check response body contains expected content
-				body := rr.Body.String()
-				for _, expected := range tt.expectedContent {
-					assert.Contains(t, body, expected, "Response should contain: %s", expected)
-				}
-
-				// Verify it's valid HTML
-				assert.Contains(t, body, "<!DOCTYPE html>")
-			} else {
-				// For error cases, check the error message
-				body := rr.Body.String()
-				for _, expected := range tt.expectedContent {
-					assert.Contains(t, body, expected, "Error response should contain: %s", expected)
-				}
-			}
+			testServeSubmissionDetailPageCase(t, tt.urlPath, tt.setupResults, tt.expectedStatusCode, tt.expectedContent)
 		})
+	}
+}
+
+func testServeSubmissionDetailPageCase(t *testing.T, urlPath string, setupResults map[string]*pb.Result, expectedStatus int, expectedContent []string) {
+	t.Helper()
+	t.Parallel()
+	ctx := contextlog.With(t.Context(), contextlog.DiscardLogger())
+
+	// Create a test server with mock storage
+	mockStore := newMockStorage()
+	for _, result := range setupResults {
+		err := mockStore.SaveResult(ctx, result)
+		assert.NoError(t, err)
+	}
+	server := NewRubricServer(mockStore)
+
+	// Create a test request
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, urlPath, http.NoBody)
+	rr := httptest.NewRecorder()
+
+	// Call the handler
+	serveSubmissionDetailPage(rr, req, server)
+
+	// Check status code
+	assert.Equal(t, expectedStatus, rr.Code)
+
+	body := rr.Body.String()
+	if expectedStatus == http.StatusOK {
+		// Check content type
+		assert.Equal(t, testHTMXContentType, rr.Header().Get("Content-Type"))
+
+		// Check response body contains expected content
+		for _, expected := range expectedContent {
+			assert.Contains(t, body, expected, testResponseShouldContain, expected)
+		}
+
+		// Verify it's valid HTML
+		assert.Contains(t, body, testDoctype)
+	} else {
+		// For error cases, check the error message
+		for _, expected := range expectedContent {
+			assert.Contains(t, body, expected, "Error response should contain: %s", expected)
+		}
 	}
 }
 
@@ -861,7 +870,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    false,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", "page-item disabled", "« First"},
+			expectedContent:    []string{"Page 1 of 3", "1 / 3", "Next", "Last", testPageItemDisabled, "« First"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -885,7 +894,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  5,
 			expectedHasPrev:    true,
 			expectedHasNext:    false,
-			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			expectedContent:    []string{"Page 3 of 3", "3 / 3", "First", "Previous", testPageItemDisabled, "Next ›", "Last »"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -897,7 +906,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    false,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 1 of 35", "1 / 35", "525 total", "Next", "Last", "« First"},
+			expectedContent:    []string{"Page 1 of 35", "1 / 35", testTotalPaginationItems, "Next", "Last", "« First"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -909,7 +918,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    true,
 			expectedHasNext:    true,
-			expectedContent:    []string{"Page 18 of 35", "18 / 35", "525 total", "First", "Previous", "Next", "Last"},
+			expectedContent:    []string{"Page 18 of 35", "18 / 35", testTotalPaginationItems, "First", "Previous", "Next", "Last"},
 			notExpectedContent: []string{},
 		},
 		{
@@ -921,7 +930,7 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 			expectedItemCount:  15,
 			expectedHasPrev:    true,
 			expectedHasNext:    false,
-			expectedContent:    []string{"Page 35 of 35", "35 / 35", "525 total", "First", "Previous", "page-item disabled", "Next ›", "Last »"},
+			expectedContent:    []string{"Page 35 of 35", "35 / 35", testTotalPaginationItems, "First", "Previous", testPageItemDisabled, "Next ›", "Last »"},
 			notExpectedContent: []string{},
 		},
 	}
@@ -939,10 +948,10 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 					SubmissionId: submissionID,
 					Timestamp:    time.Now().Format(time.RFC3339),
 					Rubric: []*pb.RubricItem{
-						{Name: "Item 1", Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
+						{Name: testItem1, Points: 100.0, Awarded: float64(50 + i%50), Note: "Test"},
 					},
 					IpAddress:   fmt.Sprintf("192.168.1.%d", i%256),
-					GeoLocation: "Test Location",
+					GeoLocation: testLocation,
 				}
 				err := mockStore.SaveResult(ctx, result)
 				assert.NoError(t, err)
@@ -964,10 +973,8 @@ func TestServeSubmissionsPagePagination(t *testing.T) {
 
 			// Verify page information is in response
 			for _, expected := range tt.expectedContent {
-				assert.Contains(t, body, expected, "Response should contain: %s", expected)
-			}
-
-			// Verify unwanted content is NOT in response
+				assert.Contains(t, body, expected, testResponseShouldContain, expected)
+			} // Verify unwanted content is NOT in response
 			for _, notExpected := range tt.notExpectedContent {
 				assert.NotContains(t, body, notExpected, "Response should NOT contain: %s", notExpected)
 			}

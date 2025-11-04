@@ -3,6 +3,7 @@ package rubrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +16,19 @@ import (
 )
 
 const (
+	// DataFileName is the name of the database file created by the program.
 	DataFileName = "data.db"
 	// expiryCheckDelay is the time to wait for key expiration to take effect.
 	// EXPIRE command in tests uses 100ms, so we add a small buffer to ensure expiration.
 	expiryCheckDelay = 110 * time.Millisecond
 	// restartLoadDelay is the time to wait for a program to load persisted data after restart.
 	restartLoadDelay = 100 * time.Millisecond
+
+	executionFailedFmt = "Execution failed: %v"
+	setCommandFmt      = "SET %s %v"
+	setCommandFmt2     = "SET %s %s"
+	setFailedFmt       = "SET failed: %v"
+	getCommandFmt      = "GET %s"
 )
 
 // Reset removes any existing data.db to ensure clean state
@@ -43,12 +51,12 @@ func EvaluateDataFileCreated(ctx context.Context, program ProgramRunner, bag Run
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	bag[key1] = uuid.New().String()
-	_, err := do(ctx, program, fmt.Sprintf("SET %s %v", key1, bag[key1]))
+	_, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1]))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(setFailedFmt, err), 0)
 	}
 	// Wait briefly for file creation
 	time.Sleep(100 * time.Millisecond)
@@ -70,12 +78,12 @@ func EvaluatePersistenceAfterRestart(ctx context.Context, program ProgramRunner,
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	bag[key1] = uuid.New().String()
-	_, err := do(ctx, program, fmt.Sprintf("SET %s %v", key1, bag[key1]))
+	_, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1]))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(setFailedFmt, err), 0)
 	}
 	// Kill the program
 	if err := program.Kill(); err != nil {
@@ -87,7 +95,7 @@ func EvaluatePersistenceAfterRestart(ctx context.Context, program ProgramRunner,
 	}
 	// Wait briefly for the program to load data
 	time.Sleep(100 * time.Millisecond)
-	out, err := do(ctx, program, fmt.Sprintf("GET %s", key1))
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
 	if err != nil {
 		return rubricItem(fmt.Sprintf("GET after restart failed: %v", err), 0)
 	}
@@ -109,11 +117,11 @@ func EvaluateNonexistentGet(ctx context.Context, program ProgramRunner, _ RunBag
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	out, err := do(ctx, program, "GET doesnotexist")
 	if err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	for _, line := range out {
@@ -139,21 +147,21 @@ func EvaluateSetGet(ctx context.Context, program ProgramRunner, bag RunBag) Rubr
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	bag[key1] = uuid.New().String()
 
 	// Do SET
-	_, err := do(ctx, program, fmt.Sprintf("SET %s %v", key1, bag[key1]))
+	_, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1]))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Do GET
-	out, err := do(ctx, program, fmt.Sprintf("GET %s", key1))
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Check GET - be flexible with prompt characters
@@ -192,25 +200,25 @@ func EvaluateOverwriteKey(ctx context.Context, program ProgramRunner, bag RunBag
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Do SET first
 	bag[key1] = uuid.New().String()
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %v", key1, bag[key1])); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1])); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Overwrite the key
 	bag[key1] = uuid.New().String()
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %v", key1, bag[key1])); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt, key1, bag[key1])); err != nil {
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Do GET
-	out, err := do(ctx, program, fmt.Sprintf("GET %s", key1))
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key1))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Check GET - be flexible with prompt characters
@@ -243,7 +251,7 @@ func do(ctx context.Context, program ProgramRunner, cmd string) ([]string, error
 		return nil, err
 	}
 	if len(errOut) > 0 {
-		contextlog.From(ctx).Info("Unexpected STDERR", "output", errOut)
+		contextlog.From(ctx).InfoContext(ctx, "Unexpected STDERR", slog.Any("output", errOut))
 	}
 
 	return out, nil
@@ -260,7 +268,7 @@ func EvaluateDeleteExists(ctx context.Context, program ProgramRunner, bag RunBag
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	key := uuid.New().String()
@@ -268,50 +276,78 @@ func EvaluateDeleteExists(ctx context.Context, program ProgramRunner, bag RunBag
 	bag["delExists_key"] = key
 
 	// SET key value
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", key, value)); err != nil {
-		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
+		return rubricItem(fmt.Sprintf(setFailedFmt, err), 0)
 	}
 
-	// EXISTS key -> expect "1"
+	// Check EXISTS before DEL
+	if errMsg := checkExistsBeforeDel(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	// Check DEL operation
+	if errMsg := checkDelOperation(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	// Check EXISTS after DEL
+	if errMsg := checkExistsAfterDel(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	// Check GET after DEL
+	if errMsg := checkGetAfterDel(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	return rubricItem("DEL and EXISTS work correctly", 5)
+}
+
+func checkExistsBeforeDel(ctx context.Context, program ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("EXISTS %s", key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("EXISTS failed: %v", err), 0)
+		return fmt.Sprintf("EXISTS failed: %v", err)
 	}
 	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "1") {
-		return rubricItem(fmt.Sprintf("EXISTS returned wrong value, expected '1', got '%v'", out), 0)
+		return fmt.Sprintf("EXISTS returned wrong value, expected '1', got '%v'", out)
 	}
+	return ""
+}
 
-	// DEL key -> expect "1"
-	out, err = do(ctx, program, fmt.Sprintf("DEL %s", key))
+func checkDelOperation(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf("DEL %s", key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("DEL failed: %v", err), 0)
+		return fmt.Sprintf("DEL failed: %v", err)
 	}
 	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "1") {
-		return rubricItem(fmt.Sprintf("DEL returned wrong value, expected '1', got '%v'", out), 0)
+		return fmt.Sprintf("DEL returned wrong value, expected '1', got '%v'", out)
 	}
+	return ""
+}
 
-	// EXISTS key -> expect "0"
-	out, err = do(ctx, program, fmt.Sprintf("EXISTS %s", key))
+func checkExistsAfterDel(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf("EXISTS %s", key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("EXISTS after DEL failed: %v", err), 0)
+		return fmt.Sprintf("EXISTS after DEL failed: %v", err)
 	}
 	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "0") {
-		return rubricItem(fmt.Sprintf("EXISTS after DEL returned wrong value, expected '0', got '%v'", out), 0)
+		return fmt.Sprintf("EXISTS after DEL returned wrong value, expected '0', got '%v'", out)
 	}
+	return ""
+}
 
-	// GET key -> expect "nil" or empty
-	out, err = do(ctx, program, fmt.Sprintf("GET %s", key))
+func checkGetAfterDel(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("GET after DEL failed: %v", err), 0)
+		return fmt.Sprintf("GET after DEL failed: %v", err)
 	}
 	if len(out) > 0 {
 		trimmed := strings.TrimSpace(out[0])
 		if trimmed != "" && !strings.Contains(strings.ToLower(trimmed), "nil") {
-			return rubricItem(fmt.Sprintf("GET after DEL should return nil, got '%s'", trimmed), 0)
+			return fmt.Sprintf("GET after DEL should return nil, got '%s'", trimmed)
 		}
 	}
-
-	return rubricItem("DEL and EXISTS work correctly", 5)
+	return ""
 }
 
 // EvaluateMSetMGet checks MSET and MGET commands
@@ -325,7 +361,7 @@ func EvaluateMSetMGet(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	keyA := uuid.New().String()
@@ -387,7 +423,7 @@ func EvaluateTTLBasic(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	key := uuid.New().String()
@@ -395,53 +431,81 @@ func EvaluateTTLBasic(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 	bag["ttl_key"] = key
 
 	// SET key value
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", key, value)); err != nil {
-		return rubricItem(fmt.Sprintf("SET failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
+		return rubricItem(fmt.Sprintf(setFailedFmt, err), 0)
 	}
 
-	// EXPIRE key 100
-	out, err := do(ctx, program, fmt.Sprintf("EXPIRE %s 100", key))
-	if err != nil {
-		return rubricItem(fmt.Sprintf("EXPIRE failed: %v", err), 0)
-	}
-	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "1") {
-		return rubricItem(fmt.Sprintf("EXPIRE should return 1, got '%v'", out), 0)
+	// Check EXPIRE operation
+	if errMsg := checkExpireOperation(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
 	}
 
-	// GET key -> expect value
-	out, err = do(ctx, program, fmt.Sprintf("GET %s", key))
-	if err != nil {
-		return rubricItem(fmt.Sprintf("GET failed: %v", err), 0)
-	}
-	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), value) {
-		return rubricItem(fmt.Sprintf("GET returned wrong value, expected '%s', got '%v'", value, out), 0)
+	// Check GET before expiry
+	if errMsg := checkGetBeforeExpiry(ctx, program, key, value); errMsg != "" {
+		return rubricItem(errMsg, 0)
 	}
 
-	// Sleep to let key expire (EXPIRE sets 100ms, add buffer to ensure expiration)
+	// Wait for key to expire
 	time.Sleep(expiryCheckDelay)
 
-	// GET key -> expect "nil" or empty
-	out, err = do(ctx, program, fmt.Sprintf("GET %s", key))
+	// Check GET after expiry
+	if errMsg := checkGetAfterExpiry(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	// Check TTL after expiry
+	if errMsg := checkTTLAfterExpiry(ctx, program, key); errMsg != "" {
+		return rubricItem(errMsg, 0)
+	}
+
+	return rubricItem("EXPIRE and TTL work correctly with lazy expiration", 5)
+}
+
+func checkExpireOperation(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf("EXPIRE %s 100", key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("GET after expiry failed: %v", err), 0)
+		return fmt.Sprintf("EXPIRE failed: %v", err)
+	}
+	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "1") {
+		return fmt.Sprintf("EXPIRE should return 1, got '%v'", out)
+	}
+	return ""
+}
+
+func checkGetBeforeExpiry(ctx context.Context, program ProgramRunner, key, value string) string {
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
+	if err != nil {
+		return fmt.Sprintf("GET failed: %v", err)
+	}
+	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), value) {
+		return fmt.Sprintf("GET returned wrong value, expected '%s', got '%v'", value, out)
+	}
+	return ""
+}
+
+func checkGetAfterExpiry(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
+	if err != nil {
+		return fmt.Sprintf("GET after expiry failed: %v", err)
 	}
 	if len(out) > 0 {
 		trimmed := strings.TrimSpace(out[0])
 		if trimmed != "" && !strings.Contains(strings.ToLower(trimmed), "nil") {
-			return rubricItem(fmt.Sprintf("GET after expiry should return nil, got '%s'", trimmed), 0)
+			return fmt.Sprintf("GET after expiry should return nil, got '%s'", trimmed)
 		}
 	}
+	return ""
+}
 
-	// TTL key -> expect "-2" (key doesn't exist)
-	out, err = do(ctx, program, fmt.Sprintf("TTL %s", key))
+func checkTTLAfterExpiry(ctx context.Context, program ProgramRunner, key string) string {
+	out, err := do(ctx, program, fmt.Sprintf("TTL %s", key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("TTL failed: %v", err), 0)
+		return fmt.Sprintf("TTL failed: %v", err)
 	}
 	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), "-2") {
-		return rubricItem(fmt.Sprintf("TTL should return -2 for expired key, got '%v'", out), 0)
+		return fmt.Sprintf("TTL should return -2 for expired key, got '%v'", out)
 	}
-
-	return rubricItem("EXPIRE and TTL work correctly with lazy expiration", 5)
+	return ""
 }
 
 // EvaluateRange checks RANGE command with lexicographic ordering
@@ -455,7 +519,7 @@ func EvaluateRange(ctx context.Context, program ProgramRunner, bag RunBag) Rubri
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	// Use deterministic keys for RANGE testing (lexicographic order matters)
@@ -545,7 +609,7 @@ func EvaluateTransactions(ctx context.Context, program ProgramRunner, bag RunBag
 		}
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Execution failed: %v", err), 0)
+		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
 	keyAbort := uuid.New().String()
@@ -556,74 +620,80 @@ func EvaluateTransactions(ctx context.Context, program ProgramRunner, bag RunBag
 	bag["txn_keyAbort"] = keyAbort
 	bag["txn_keyCommit"] = keyCommit
 
-	// BEGIN
+	// Test abort transaction
+	if errMsg, ok := testAbortTxn(ctx, program, keyAbort, valAbort); !ok {
+		return rubricItem(errMsg, 0)
+	}
+
+	// Test commit transaction
+	if errMsg, ok := testCommitTxn(ctx, program, keyCommit, valCommit); !ok {
+		return rubricItem(errMsg, 0)
+	}
+
+	return rubricItem("Transactions work correctly with read-your-writes, abort, and commit persistence", 5)
+}
+
+func testAbortTxn(ctx context.Context, program ProgramRunner, key, value string) (string, bool) {
 	if _, err := do(ctx, program, "BEGIN"); err != nil {
-		return rubricItem(fmt.Sprintf("BEGIN failed: %v", err), 0)
+		return fmt.Sprintf("BEGIN failed: %v", err), false
 	}
 
-	// SET keyAbort valAbort
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", keyAbort, valAbort)); err != nil {
-		return rubricItem(fmt.Sprintf("SET in transaction failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
+		return fmt.Sprintf("SET in transaction failed: %v", err), false
 	}
 
-	// GET keyAbort -> expect valAbort (read-your-writes)
-	out, err := do(ctx, program, fmt.Sprintf("GET %s", keyAbort))
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("GET in transaction failed: %v", err), 0)
+		return fmt.Sprintf("GET in transaction failed: %v", err), false
 	}
-	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), valAbort) {
-		return rubricItem(fmt.Sprintf("GET in transaction should return '%s', got '%v'", valAbort, out), 0)
+	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), value) {
+		return fmt.Sprintf("GET in transaction should return '%s', got '%v'", value, out), false
 	}
 
-	// ABORT
 	if _, err := do(ctx, program, "ABORT"); err != nil {
-		return rubricItem(fmt.Sprintf("ABORT failed: %v", err), 0)
+		return fmt.Sprintf("ABORT failed: %v", err), false
 	}
 
-	// GET keyAbort -> expect "nil" (abort discards)
-	out, err = do(ctx, program, fmt.Sprintf("GET %s", keyAbort))
+	out, err = do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("GET after ABORT failed: %v", err), 0)
+		return fmt.Sprintf("GET after ABORT failed: %v", err), false
 	}
 	if len(out) > 0 {
 		trimmed := strings.TrimSpace(out[0])
 		if trimmed != "" && !strings.Contains(strings.ToLower(trimmed), "nil") {
-			return rubricItem(fmt.Sprintf("GET after ABORT should return nil, got '%s'", trimmed), 0)
+			return fmt.Sprintf("GET after ABORT should return nil, got '%s'", trimmed), false
 		}
 	}
+	return "", true
+}
 
-	// BEGIN
+func testCommitTxn(ctx context.Context, program ProgramRunner, key, value string) (string, bool) {
 	if _, err := do(ctx, program, "BEGIN"); err != nil {
-		return rubricItem(fmt.Sprintf("Second BEGIN failed: %v", err), 0)
+		return fmt.Sprintf("Second BEGIN failed: %v", err), false
 	}
 
-	// SET keyCommit valCommit
-	if _, err := do(ctx, program, fmt.Sprintf("SET %s %s", keyCommit, valCommit)); err != nil {
-		return rubricItem(fmt.Sprintf("SET in second transaction failed: %v", err), 0)
+	if _, err := do(ctx, program, fmt.Sprintf(setCommandFmt2, key, value)); err != nil {
+		return fmt.Sprintf("SET in second transaction failed: %v", err), false
 	}
 
-	// COMMIT
 	if _, err := do(ctx, program, "COMMIT"); err != nil {
-		return rubricItem(fmt.Sprintf("COMMIT failed: %v", err), 0)
+		return fmt.Sprintf("COMMIT failed: %v", err), false
 	}
 
-	// Kill and restart to check persistence
 	if err := program.Kill(); err != nil {
-		return rubricItem(fmt.Sprintf("Kill failed: %v", err), 0)
+		return fmt.Sprintf("Kill failed: %v", err), false
 	}
 	if err := program.Run(); err != nil {
-		return rubricItem(fmt.Sprintf("Restart failed: %v", err), 0)
+		return fmt.Sprintf("Restart failed: %v", err), false
 	}
-	time.Sleep(restartLoadDelay) // Wait for program to load persisted data
+	time.Sleep(restartLoadDelay)
 
-	// GET keyCommit -> expect valCommit (commit persists)
-	out, err = do(ctx, program, fmt.Sprintf("GET %s", keyCommit))
+	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
-		return rubricItem(fmt.Sprintf("GET after restart failed: %v", err), 0)
+		return fmt.Sprintf("GET after restart failed: %v", err), false
 	}
-	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), valCommit) {
-		return rubricItem(fmt.Sprintf("GET after restart should return '%s', got '%v'", valCommit, out), 0)
+	if len(out) == 0 || !strings.Contains(strings.TrimSpace(out[0]), value) {
+		return fmt.Sprintf("GET after restart should return '%s', got '%v'", value, out), false
 	}
-
-	return rubricItem("Transactions work correctly with read-your-writes, abort, and commit persistence", 5)
+	return "", true
 }

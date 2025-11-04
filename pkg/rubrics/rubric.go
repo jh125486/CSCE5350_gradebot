@@ -35,6 +35,7 @@ type (
 	Evaluator func(context.Context, ProgramRunner, RunBag) RubricItem
 )
 
+// Render outputs the grading result as a formatted table.
 func (r *Result) Render(w io.Writer) {
 	if w == nil {
 		w = os.Stdout
@@ -58,6 +59,7 @@ func (r *Result) Render(w io.Writer) {
 	_ = table.Render()
 }
 
+// Points returns the total possible points for the grading result.
 func (r *Result) Points() float64 {
 	sum := 0.0
 	for _, item := range r.Rubric {
@@ -66,6 +68,7 @@ func (r *Result) Points() float64 {
 	return sum
 }
 
+// Awarded returns the total points awarded for the grading result.
 func (r *Result) Awarded() float64 {
 	sum := 0.0
 	for _, item := range r.Rubric {
