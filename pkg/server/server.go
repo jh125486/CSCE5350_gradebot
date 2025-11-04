@@ -203,7 +203,6 @@ func tlsConfig() *tls.Config {
 	//#nosec:G402 // This is needed to get around proxies that don't support TLS 1.3
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
-		MaxVersion: tls.VersionTLS12,
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
