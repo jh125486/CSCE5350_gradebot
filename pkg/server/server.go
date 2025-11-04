@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"embed"
 	"fmt"
 	"html/template"
@@ -123,7 +124,9 @@ type TemplateManager struct {
 	tableContentTmpl *template.Template
 }
 
-// NewTemplateManager creates a new template manager with loaded templates
+// NewTemplateManager creates and returns a new template manager with all embedded templates loaded.
+// It registers custom template functions (add, sub) for pagination calculations.
+// It panics if any template fails to parse.
 func NewTemplateManager() *TemplateManager {
 	funcMap := template.FuncMap{
 		"add": func(a, b int) int { return a + b },
@@ -142,6 +145,7 @@ func NewTemplateManager() *TemplateManager {
 	}
 }
 
+// SubmissionData represents a single submission with its evaluation score and metadata.
 type SubmissionData struct {
 	SubmissionID  string
 	Timestamp     time.Time
@@ -152,6 +156,7 @@ type SubmissionData struct {
 	GeoLocation   string
 }
 
+// RubricItemData represents a single rubric item with its point value and awarded score.
 type RubricItemData struct {
 	Name    string
 	Points  float64
@@ -159,6 +164,8 @@ type RubricItemData struct {
 	Note    string
 }
 
+// SubmissionsPageData contains all data needed to render the submissions overview page,
+// including pagination information, submission details, and score statistics.
 type SubmissionsPageData struct {
 	TotalSubmissions int
 	HighScore        float64
@@ -170,25 +177,47 @@ type SubmissionsPageData struct {
 	HasNextPage      bool
 }
 
-// GradingServer represents a grading server
 type (
+	// Config contains the configuration required to start the server.
 	Config struct {
 		ID           string
 		Port         string
 		OpenAIClient openai.Reviewer
 		Storage      storage.Storage
 	}
+	// GradingServer represents a grading server
 	GradingServer struct {
 		ID string
 	}
 )
 
+// QualityServer implements the Quality service for code quality evaluation via AI.
 type QualityServer struct {
 	protoconnect.UnimplementedQualityServiceHandler
 	OpenAIClient openai.Reviewer
 }
 
-// Start handles the server mode logic
+// tlsConfig configures TLS 1.2 with ciphers compatible with corporate proxies.
+// This ensures compatibility with older corporate proxy infrastructure that may not support TLS 1.3.
+func tlsConfig() *tls.Config {
+	//#nosec:G402 // This is needed to get around proxies that don't support TLS 1.3
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		MaxVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		},
+	}
+}
+
+// Start initializes and runs the gRPC/HTTP server on the configured port.
+// It sets up handlers for both Connect RPC services (Quality and Rubric),
+// serves embedded HTML pages for viewing submissions, and provides a health check endpoint.
+// The server is configured with TLS 1.2 for corporate proxy compatibility.
+// It gracefully shuts down on context cancellation or when the listener returns an error.
 func Start(ctx context.Context, cfg Config) error {
 	contextlog.From(ctx).InfoContext(ctx, "Server will start on port", slog.String("port", cfg.Port))
 	var lc net.ListenConfig
@@ -232,6 +261,7 @@ func Start(ctx context.Context, cfg Config) error {
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
+		TLSConfig:         tlsConfig(),
 	}
 	contextlog.From(ctx).InfoContext(ctx, "Connect HTTP server listening", slog.String("port", cfg.Port))
 
@@ -483,7 +513,10 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 }
 
-// AuthRubricHandler wraps the rubric handler with selective authentication
+// AuthRubricHandler returns an HTTP handler that wraps the given handler with selective authentication.
+// It requires authentication (Bearer token) for POST, PUT, and DELETE requests,
+// while allowing GET and HEAD requests without authentication for public submissions viewing.
+// Returns 401 Unauthorized if required authentication is missing or invalid.
 func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a method that requires authentication
@@ -521,7 +554,9 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 	})
 }
 
-// AuthMiddleware returns an http.Handler middleware that enforces authorization
+// AuthMiddleware returns a middleware function that validates Bearer token authentication.
+// It verifies the Authorization header contains a valid "Bearer {token}" before allowing the request through.
+// Returns 401 Unauthorized if the token is missing or invalid.
 func AuthMiddleware(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -578,6 +613,9 @@ func requiresAuth(r *http.Request) bool {
 	return r.URL.Path == "/rubric.RubricService/UploadRubricResult"
 }
 
+// EvaluateCodeQuality handles RPC requests to evaluate code quality using AI.
+// It validates that files are provided in the request, calls the OpenAI client to review the code,
+// and returns the review feedback or an error if validation or evaluation fails.
 func (s *QualityServer) EvaluateCodeQuality(
 	ctx context.Context,
 	req *connect.Request[pb.EvaluateCodeQualityRequest],
