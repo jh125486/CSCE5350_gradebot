@@ -110,7 +110,7 @@ func (p *Program) Run(args ...string) (err error) {
 func (p *Program) changeToWorkDir() (func() error, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
-		panic(fmt.Sprintf("failed to determine working directory: %v", err))
+		return nil, fmt.Errorf("failed to determine working directory: %w", err)
 	}
 
 	if err := os.Chdir(p.WorkDir); err != nil {

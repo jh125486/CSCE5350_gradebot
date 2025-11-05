@@ -10,7 +10,7 @@ import (
 	http "net/http"
 	strings "strings"
 
-	connect_go "github.com/bufbuild/connect-go"
+	connect "connectrpc.com/connect"
 	proto "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
@@ -19,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect_go.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// RubricServiceName is the fully-qualified name of the RubricService service.
@@ -41,7 +41,7 @@ const (
 
 // RubricServiceClient is a client for the rubric.RubricService service.
 type RubricServiceClient interface {
-	UploadRubricResult(context.Context, *connect_go.Request[proto.UploadRubricResultRequest]) (*connect_go.Response[proto.UploadRubricResultResponse], error)
+	UploadRubricResult(context.Context, *connect.Request[proto.UploadRubricResultRequest]) (*connect.Response[proto.UploadRubricResultResponse], error)
 }
 
 // NewRubricServiceClient constructs a client for the rubric.RubricService service. By default, it
@@ -51,30 +51,32 @@ type RubricServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewRubricServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) RubricServiceClient {
+func NewRubricServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) RubricServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	rubricServiceMethods := proto.File_pkg_proto_rubric_proto.Services().ByName("RubricService").Methods()
 	return &rubricServiceClient{
-		uploadRubricResult: connect_go.NewClient[proto.UploadRubricResultRequest, proto.UploadRubricResultResponse](
+		uploadRubricResult: connect.NewClient[proto.UploadRubricResultRequest, proto.UploadRubricResultResponse](
 			httpClient,
 			baseURL+RubricServiceUploadRubricResultProcedure,
-			opts...,
+			connect.WithSchema(rubricServiceMethods.ByName("UploadRubricResult")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
 // rubricServiceClient implements RubricServiceClient.
 type rubricServiceClient struct {
-	uploadRubricResult *connect_go.Client[proto.UploadRubricResultRequest, proto.UploadRubricResultResponse]
+	uploadRubricResult *connect.Client[proto.UploadRubricResultRequest, proto.UploadRubricResultResponse]
 }
 
 // UploadRubricResult calls rubric.RubricService.UploadRubricResult.
-func (c *rubricServiceClient) UploadRubricResult(ctx context.Context, req *connect_go.Request[proto.UploadRubricResultRequest]) (*connect_go.Response[proto.UploadRubricResultResponse], error) {
+func (c *rubricServiceClient) UploadRubricResult(ctx context.Context, req *connect.Request[proto.UploadRubricResultRequest]) (*connect.Response[proto.UploadRubricResultResponse], error) {
 	return c.uploadRubricResult.CallUnary(ctx, req)
 }
 
 // RubricServiceHandler is an implementation of the rubric.RubricService service.
 type RubricServiceHandler interface {
-	UploadRubricResult(context.Context, *connect_go.Request[proto.UploadRubricResultRequest]) (*connect_go.Response[proto.UploadRubricResultResponse], error)
+	UploadRubricResult(context.Context, *connect.Request[proto.UploadRubricResultRequest]) (*connect.Response[proto.UploadRubricResultResponse], error)
 }
 
 // NewRubricServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -82,11 +84,13 @@ type RubricServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewRubricServiceHandler(svc RubricServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	rubricServiceUploadRubricResultHandler := connect_go.NewUnaryHandler(
+func NewRubricServiceHandler(svc RubricServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	rubricServiceMethods := proto.File_pkg_proto_rubric_proto.Services().ByName("RubricService").Methods()
+	rubricServiceUploadRubricResultHandler := connect.NewUnaryHandler(
 		RubricServiceUploadRubricResultProcedure,
 		svc.UploadRubricResult,
-		opts...,
+		connect.WithSchema(rubricServiceMethods.ByName("UploadRubricResult")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/rubric.RubricService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -101,6 +105,6 @@ func NewRubricServiceHandler(svc RubricServiceHandler, opts ...connect_go.Handle
 // UnimplementedRubricServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedRubricServiceHandler struct{}
 
-func (UnimplementedRubricServiceHandler) UploadRubricResult(context.Context, *connect_go.Request[proto.UploadRubricResultRequest]) (*connect_go.Response[proto.UploadRubricResultResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("rubric.RubricService.UploadRubricResult is not implemented"))
+func (UnimplementedRubricServiceHandler) UploadRubricResult(context.Context, *connect.Request[proto.UploadRubricResultRequest]) (*connect.Response[proto.UploadRubricResultResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rubric.RubricService.UploadRubricResult is not implemented"))
 }

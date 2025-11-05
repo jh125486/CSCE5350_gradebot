@@ -18,6 +18,7 @@ type (
 		SubmissionID string       `json:"submissionID"`
 		Timestamp    time.Time    `json:"timestamp"`
 		Rubric       []RubricItem `json:"rubric"`
+		Project      string       `json:"project"`
 	}
 	// RunBag is a map for passing data between evaluation steps
 	RunBag map[string]any
@@ -34,6 +35,7 @@ type (
 	Evaluator func(context.Context, ProgramRunner, RunBag) RubricItem
 )
 
+// Render outputs the grading result as a formatted table.
 func (r *Result) Render(w io.Writer) {
 	if w == nil {
 		w = os.Stdout
@@ -57,6 +59,7 @@ func (r *Result) Render(w io.Writer) {
 	_ = table.Render()
 }
 
+// Points returns the total possible points for the grading result.
 func (r *Result) Points() float64 {
 	sum := 0.0
 	for _, item := range r.Rubric {
@@ -65,6 +68,7 @@ func (r *Result) Points() float64 {
 	return sum
 }
 
+// Awarded returns the total points awarded for the grading result.
 func (r *Result) Awarded() float64 {
 	sum := 0.0
 	for _, item := range r.Rubric {
@@ -74,10 +78,11 @@ func (r *Result) Awarded() float64 {
 }
 
 // NewResult returns a Result prepared to collect rubric items.
-func NewResult() *Result {
+func NewResult(project string) *Result {
 	return &Result{
 		SubmissionID: namesgenerator.GetRandomName(0),
 		Timestamp:    time.Now(),
 		Rubric:       make([]RubricItem, 0),
+		Project:      project,
 	}
 }

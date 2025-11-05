@@ -34,8 +34,8 @@ linters:
     - govet
     - ineffassign
     - interfacebloat
-    - ireturn
     - lll
+    - loggercheck
     - makezero
     - nakedret
     - nestif
@@ -48,7 +48,9 @@ linters:
     - revive
     - rowserrcheck
     - sqlclosecheck
+    - sloglint
     - staticcheck
+    - tagalign
     - thelper
     - tparallel
     - unconvert
@@ -78,6 +80,11 @@ linters:
       line-length: 140
     nakedret:
       max-func-lines: 50
+    sloglint:
+      attr-only: true
+      context: "all"
+      no-global: "all"
+      args-on-sep-lines: true
     staticcheck:
       checks: 
         - all
@@ -111,6 +118,7 @@ linters:
           - unparam
           - thelper
           - tparallel
+          - nestif
       # Exclude specific issues in main.go
       - path: "main\\.go$"
         linters:

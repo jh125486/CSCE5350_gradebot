@@ -1,120 +1,87 @@
 package client
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
+	"bytes"
+	"context"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 )
 
-func TestWorkDirValidate(t *testing.T) {
+func TestPromptForSubmission(t *testing.T) {
 	t.Parallel()
 
-	type testCase struct {
-		name          string
-		setup         func(t *testing.T) (string, func())
-		wantErr       bool
-		errContains   string
-		skipOnWindows bool
+	type args struct {
+		ctx context.Context
+		w   io.Writer
+		r   io.Reader
 	}
-
-	cases := []testCase{
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
 		{
-			name: "empty path",
-			setup: func(t *testing.T) (string, func()) {
-				return "", nil
+			name: "user_answers_yes",
+			args: args{
+				r: strings.NewReader("y\n"),
 			},
-			wantErr:     true,
-			errContains: "not specified",
+			want: true,
 		},
 		{
-			name: "nonexistent path",
-			setup: func(t *testing.T) (string, func()) {
-				missing := filepath.Join(t.TempDir(), "does-not-exist")
-				return missing, nil
+			name: "user_answers_no",
+			args: args{
+				r: strings.NewReader("n\n"),
 			},
-			wantErr:     true,
-			errContains: "no such file or directory",
+			want: false,
 		},
 		{
-			name: "not a directory",
-			setup: func(t *testing.T) (string, func()) {
-				dir := t.TempDir()
-				file, err := os.CreateTemp(dir, "file")
-				if err != nil {
-					t.Fatalf("CreateTemp: %v", err)
-				}
-				if err := file.Close(); err != nil {
-					t.Fatalf("Close: %v", err)
-				}
-				return file.Name(), func() { _ = os.Remove(file.Name()) }
+			name: "user_answers_yes_uppercase",
+			args: args{
+				r: strings.NewReader("Y\n"),
 			},
-			wantErr:     true,
-			errContains: "not a directory",
+			want: true,
 		},
 		{
-			name: "open failure",
-			setup: func(t *testing.T) (string, func()) {
-				base := t.TempDir()
-				restricted := filepath.Join(base, "restricted")
-				if err := os.Mkdir(restricted, 0o700); err != nil {
-					t.Fatalf("Mkdir: %v", err)
-				}
-				if err := os.Chmod(restricted, 0o100); err != nil {
-					t.Fatalf("Chmod: %v", err)
-				}
-				return restricted, func() { _ = os.Chmod(restricted, 0o700) }
+			name: "user_answers_invalid",
+			args: args{
+				r: strings.NewReader("maybe\n"),
 			},
-			wantErr:       true,
-			errContains:   "open",
-			skipOnWindows: true,
+			want: false,
 		},
 		{
-			name: "success",
-			setup: func(t *testing.T) (string, func()) {
-				dir := t.TempDir()
-				return dir, nil
+			name: "read_error_eof",
+			args: args{
+				r: strings.NewReader(""),
 			},
-		},
-		{
-			name: "success with contents",
-			setup: func(t *testing.T) (string, func()) {
-				dir := t.TempDir()
-				if err := os.WriteFile(filepath.Join(dir, "file"), []byte("data"), 0o600); err != nil {
-					t.Fatalf("WriteFile: %v", err)
-				}
-				return dir, nil
-			},
+			want: false,
 		},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if tc.skipOnWindows && runtime.GOOS == "windows" {
-				t.Skip("directory permission semantics differ on Windows")
+			if tt.args.ctx == nil {
+				tt.args.ctx = t.Context()
+			}
+			tt.args.ctx = contextlog.With(tt.args.ctx, contextlog.DiscardLogger())
+			// Use a bytes.Buffer to capture output
+			output := new(bytes.Buffer)
+			if tt.args.w == nil {
+				tt.args.w = output
+			}
+			got := promptForSubmission(tt.args.ctx, tt.args.w, tt.args.r)
+
+			if got != tt.want {
+				t.Errorf("promptForSubmission() = %v, want %v", got, tt.want)
 			}
 
-			path, cleanup := tc.setup(t)
-			if cleanup != nil {
-				t.Cleanup(cleanup)
-			}
-
-			err := WorkDir(path).Validate()
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
-					t.Fatalf("expected error containing %q, got %v", tc.errContains, err)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("expected success, got: %v", err)
+			// Verify the prompt was written to the output
+			if output.Len() == 0 {
+				t.Errorf("promptForSubmission() did not write to output")
 			}
 		})
 	}

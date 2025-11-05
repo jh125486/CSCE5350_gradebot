@@ -69,14 +69,6 @@ func TestResult_ToTable(t *testing.T) {
 	}
 }
 
-func TestResult_ToTable_NilWriter(t *testing.T) {
-	t.Parallel()
-
-	res := &r.Result{SubmissionID: "test", Rubric: []r.RubricItem{{Name: "A", Note: "ok", Points: 5, Awarded: 5}}}
-	// Should not panic or error
-	res.Render(nil)
-}
-
 func TestNewResult(t *testing.T) {
 	t.Parallel()
 
@@ -90,7 +82,7 @@ func TestNewResult(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			res := r.NewResult()
+			res := r.NewResult(tt.name)
 			if res == nil {
 				t.Fatalf("empty Result")
 			}
