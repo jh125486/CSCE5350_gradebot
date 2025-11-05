@@ -2,7 +2,7 @@ module github.com/jh125486/CSCE5350_gradebot
 
 go 1.24.0
 
-require github.com/docker/docker v28.5.1+incompatible
+require github.com/docker/docker v28.5.2+incompatible
 
 require (
 	connectrpc.com/connect v1.19.1
