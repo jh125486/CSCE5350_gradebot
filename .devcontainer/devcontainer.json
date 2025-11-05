@@ -28,6 +28,7 @@
         "golang.Go",
         "ms-vscode.vscode-json",
         "ms-vscode.vscode-yaml",
+        "GitHub.copilot-chat",
         "SonarSource.sonarlint-vscode",
         "XiaoXuxxxx.gogo-codelens",
         "SebastianPanetta.golang-table-driven-tests"
