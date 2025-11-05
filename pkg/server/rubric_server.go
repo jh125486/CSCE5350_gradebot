@@ -57,6 +57,7 @@ func (s *RubricServer) UploadRubricResult(
 		Rubric:       result.Rubric,
 		IpAddress:    clientIP,
 		GeoLocation:  geoLocation,
+		Project:      result.Project,
 	}
 
 	// Save to persistent storage

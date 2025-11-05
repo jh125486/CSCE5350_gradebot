@@ -16,6 +16,12 @@ init:
 	@bash .githooks/install-hooks.sh
 	@echo "Development environment initialized ✓"
 
+upgrade:
+	@echo "Upgrading Go modules to latest versions..."
+	@go get -u -t ./...
+	@go mod tidy
+	@echo "Go modules upgraded ✓"
+
 build:
 	@echo "Building $(BINARY_NAME)"
 	@mkdir -p $(BUILD_DIR)
@@ -27,25 +33,32 @@ test:
 	@echo "Running tests..."
 	@go test -timeout 30s -race -coverprofile=coverage.out ./...
 
-## lint: Run all linting tools
-lint: golangci-lint modernize
+tidy:
+	@echo "Tidying Go modules..."
+	@go mod tidy
+	@echo "Go modules tidied ✓"
+
+## static: Run all linting tools
+static: tidy vet golangci-lint modernize vuln-check outdated
 	@echo "All linting completed ✓"
 
 ## golangci-lint: Run golangci-lint
 golangci-lint:
-	@echo "Running $$(golangci-lint version)..."
-	@golangci-lint run ./...
+	@echo "Running $$(go tool golangci-lint version)..."
+	@go tool golangci-lint run --fix ./...
+
+vuln-check:
+	@echo "Checking for vulnerabilities..."
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 ## modernize: Check for outdated Go patterns and suggest improvements
 modernize:
-	@echo "Running go mod tidy..."
-	@go mod tidy
-	@echo "Checking for vulnerabilities..."
-	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	@echo "Running modernize analysis..."
 	@go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -fix -test ./...
-	@echo "Checking for outdated dependencies..."
-	@go list -u -m all | grep -v "=>"
+	
+outdated:
+	@echo "Checking for outdated direct dependencies..."
+	@go list -u -m -f '{{if not .Indirect}}{{.}}{{end}}' all 2>/dev/null | grep '\[' || echo "All direct dependencies are up to date"
 
 ## fmt: Format code
 fmt:
@@ -59,7 +72,7 @@ vet:
 	@go vet ./...
 
 ## check: Run all checks (format, vet, lint, test)
-check: fmt vet lint test
+check: tidy fmt static test
 	@echo "All checks completed ✓"
 
 ## run-server: Run gradebot in server mode

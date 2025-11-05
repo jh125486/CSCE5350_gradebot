@@ -19,26 +19,27 @@ import (
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
 )
 
+//nolint:lll // CLI struct tags get long
 type (
 	// CLI defines the command-line interface structure for the gradebot application.
 	CLI struct {
-		Server   ServerCmd   `cmd:"" hidden:"true" help:"Start the grading server"`
+		Server   ServerCmd   `cmd:"" help:"Start the grading server"        hidden:"true"`
 		Project1 Project1Cmd `cmd:"" help:"Execute project1 grading client"`
 		Project2 Project2Cmd `cmd:"" help:"Execute project2 grading client"`
 	}
 	// ServerCmd contains configuration for running the grading server.
 	ServerCmd struct {
-		Port      string `name:"port" default:"8080" help:"Port of the grading server"`
-		OpenAIKey string `name:"openai-key" help:"OpenAI API key" env:"OPENAI_API_KEY"`
+		Port      string `default:"8080"       help:"Port of the grading server" name:"port"`
+		OpenAIKey string `env:"OPENAI_API_KEY" help:"OpenAI API key"             name:"openai-key"`
 
 		// Storage configuration - Kong populates these from environment variables
-		DatabaseURL    string `env:"DATABASE_URL" help:"PostgreSQL connection string"`
-		R2Endpoint     string `env:"R2_ENDPOINT" help:"R2/S3 endpoint URL"`
-		AWSRegion      string `env:"AWS_REGION" help:"AWS region"`
-		R2Bucket       string `env:"R2_BUCKET" help:"R2/S3 bucket name"`
-		AWSAccessKeyID string `env:"AWS_ACCESS_KEY_ID" help:"AWS access key ID"`
-		AWSSecretKey   string `env:"AWS_SECRET_ACCESS_KEY" help:"AWS secret access key" `
-		UsePathStyle   string `env:"USE_PATH_STYLE" help:"Use path-style S3 addressing"`
+		DatabaseURL    string `env:"DATABASE_URL"          help:"PostgreSQL connection string"`
+		R2Endpoint     string `env:"R2_ENDPOINT"           help:"R2/S3 endpoint URL"           name:"r2-endpoint"`
+		AWSRegion      string `env:"AWS_REGION"            help:"AWS region"`
+		R2Bucket       string `env:"R2_BUCKET"             help:"R2/S3 bucket name"            name:"r2-bucket"`
+		AWSAccessKeyID string `env:"AWS_ACCESS_KEY_ID"     help:"AWS access key ID"`
+		AWSSecretKey   string `env:"AWS_SECRET_ACCESS_KEY" help:"AWS secret access key"`
+		UsePathStyle   string `env:"USE_PATH_STYLE"        help:"Use path-style S3 addressing"`
 
 		storage storage.Storage `kong:"-"`
 	}
@@ -52,9 +53,9 @@ type (
 	}
 	// CommonProjectArgs contains arguments shared across project grading commands.
 	CommonProjectArgs struct {
-		ServerURL string         `name:"server-url" default:"https://gradebot-unt-fab5dc5c.koyeb.app" help:"URL of the grading server"`
-		Dir       client.WorkDir `name:"dir" help:"Path to your project directory (must exist and be accessible)" required:"" default:"."`
-		RunCmd    string         `name:"run" help:"Command to run your program" required:""`
+		ServerURL string         `default:"https://gradebot-unt-fab5dc5c.koyeb.app" help:"URL of the grading server"                                     name:"server-url"`
+		Dir       client.WorkDir `default:"."                                       help:"Path to your project directory (must exist and be accessible)" name:"dir"        required:""`
+		RunCmd    string         `help:"Command to run your program"                name:"run"                                                           required:""`
 
 		Client *http.Client `kong:"-"`
 		Stdin  io.Reader    `kong:"-"` // For testing - can inject stdin for prompts

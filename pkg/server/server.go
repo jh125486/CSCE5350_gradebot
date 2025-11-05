@@ -146,14 +146,16 @@ func NewTemplateManager() *TemplateManager {
 }
 
 // SubmissionData represents a single submission with its evaluation score and metadata.
+// SubmissionData represents a single submission for display purposes.
+// For the submissions list page, it contains: submission_id, project, uploaded_at, and score.
+// For the submission detail page, it includes the full result data with project info.
 type SubmissionData struct {
-	SubmissionID  string
-	Timestamp     time.Time
-	TotalPoints   float64
-	AwardedPoints float64
-	Score         float64
-	IPAddress     string
-	GeoLocation   string
+	SubmissionID string
+	Project      string
+	Timestamp    time.Time
+	Score        float64
+	IPAddress    string
+	GeoLocation  string
 }
 
 // RubricItemData represents a single rubric item with its point value and awarded score.
@@ -313,13 +315,12 @@ func parseSubmissionsFromResults(ctx context.Context, results map[string]*pb.Res
 		}
 
 		submissions = append(submissions, SubmissionData{
-			SubmissionID:  result.SubmissionId,
-			Timestamp:     timestamp,
-			TotalPoints:   totalPoints,
-			AwardedPoints: awardedPoints,
-			Score:         score,
-			IPAddress:     result.IpAddress,
-			GeoLocation:   result.GeoLocation,
+			SubmissionID: result.SubmissionId,
+			Project:      result.Project,
+			Timestamp:    timestamp,
+			Score:        score,
+			IPAddress:    result.IpAddress,
+			GeoLocation:  result.GeoLocation,
 		})
 		if score > highScore {
 			highScore = score
@@ -487,6 +488,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 
 	data := struct {
 		SubmissionID  string
+		Project       string
 		Timestamp     time.Time
 		TotalPoints   float64
 		AwardedPoints float64
@@ -496,6 +498,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 		Rubric        []RubricItemData
 	}{
 		SubmissionID:  result.SubmissionId,
+		Project:       result.Project,
 		Timestamp:     timestamp,
 		TotalPoints:   totalPoints,
 		AwardedPoints: awardedPoints,

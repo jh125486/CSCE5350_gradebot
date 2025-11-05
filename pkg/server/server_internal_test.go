@@ -415,7 +415,7 @@ func TestServeSubmissionsPage(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedContent:    []string{testTotalSubmissions, testSubmissionID1, "80.0%", testIP2, testLocation1},
+			expectedContent:    []string{testTotalSubmissions, testSubmissionID1, "80.0%"},
 		},
 		{
 			name: "MultipleSubmissions",

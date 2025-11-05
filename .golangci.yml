@@ -50,6 +50,7 @@ linters:
     - sqlclosecheck
     - sloglint
     - staticcheck
+    - tagalign
     - thelper
     - tparallel
     - unconvert

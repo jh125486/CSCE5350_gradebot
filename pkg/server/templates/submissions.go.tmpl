@@ -242,21 +242,17 @@
                                 <thead>
                                     <tr>
                                         <th>Submission ID</th>
-                                        <th>Timestamp</th>
-                                        <th>Total Points</th>
-                                        <th>Awarded Points</th>
+                                        <th>Project</th>
+                                        <th>Uploaded At</th>
                                         <th>Score</th>
-                                        <th>IP Address</th>
-                                        <th>Location</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {{range .Submissions}}
                                     <tr>
                                         <td><a href="/submissions/{{.SubmissionID}}" class="submission-link"><code class="submission-id">{{.SubmissionID}}</code> 🔗</a></td>
+                                        <td>{{.Project}}</td>
                                         <td><small>{{.Timestamp.Format "2006-01-02 15:04"}}</small></td>
-                                        <td>{{printf "%.1f" .TotalPoints}}</td>
-                                        <td>{{printf "%.1f" .AwardedPoints}}</td>
                                         <td>
                                             {{$score := .Score}}
                                             {{if ge $score 80.0}}
@@ -267,8 +263,6 @@
                                             <span class="score-badge score-low">{{printf "%.1f" $score}}%</span>
                                             {{end}}
                                         </td>
-                                        <td><code class="submission-id">{{.IPAddress}}</code></td>
-                                        <td><small>{{.GeoLocation}}</small></td>
                                     </tr>
                                     {{end}}
                                 </tbody>
@@ -343,40 +337,22 @@
                         targets: 0
                     },
                     {
-                        // Timestamp - high priority, show before others
+                        // Project - high priority
                         responsivePriority: 2,
                         orderable: false,
                         targets: 1
                     },
                     {
-                        // Total Points - medium priority
+                        // Uploaded At - medium priority
                         responsivePriority: 3,
                         orderable: false,
                         targets: 2
                     },
                     {
-                        // Awarded Points - medium priority
+                        // Score - high priority
                         responsivePriority: 4,
                         orderable: false,
                         targets: 3
-                    },
-                    {
-                        // Score - high priority (hide later)
-                        responsivePriority: 5,
-                        orderable: false,
-                        targets: 4
-                    },
-                    {
-                        // IP Address - low priority (hide first)
-                        responsivePriority: 10001,
-                        orderable: false,
-                        targets: 5
-                    },
-                    {
-                        // Location - lowest priority (hide second)
-                        responsivePriority: 10002,
-                        orderable: false,
-                        targets: 6
                     }
                 ],
                 dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>' +
