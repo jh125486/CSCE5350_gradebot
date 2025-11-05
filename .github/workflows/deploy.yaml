@@ -47,6 +47,11 @@ jobs:
         with:
           secret-name: BUILD_ID
           secret-value: "${{ secrets.BUILD_ID }}"
+      - name: Create SQL secret
+        uses: koyeb/action-git-deploy/secret@v1
+        with:
+          secret-name: DATABASE_URL
+          secret-value: "${{ secrets.DATABASE_URL }}"
       - name: Create R2 Endpoint secret
         uses: koyeb/action-git-deploy/secret@v1
         with:
@@ -71,7 +76,7 @@ jobs:
           git-run-command: ./bin/CSCE5350_gradebot server
           service-regions: was
           service-instance-type: free
-          service-env: OPENAI_API_KEY=@OPENAI_API_KEY,BUILD_ID=@BUILD_ID,R2_ENDPOINT=@R2_ENDPOINT,AWS_ACCESS_KEY_ID=@AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY=@AWS_SECRET_ACCESS_KEY
+          service-env: OPENAI_API_KEY=@OPENAI_API_KEY,BUILD_ID=@BUILD_ID,DATABASE_URL=@DATABASE_URL,R2_ENDPOINT=@R2_ENDPOINT,AWS_ACCESS_KEY_ID=@AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY=@AWS_SECRET_ACCESS_KEY
           service-ports: "8080:http"
           service-routes: "/:8080"
           app-name: gradebot
