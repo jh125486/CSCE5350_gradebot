@@ -4,5 +4,5 @@ Evaluate:
 3. Code readability and documentation.
 4. Overall code quality.
 
-- Do not decrorate response with formatting, e.g. markdown, bold, italics, etc.
+- Do not decorate response with formatting, e.g. markdown, bold, italics, etc.
 - Keep the feedback as concise as possible.
