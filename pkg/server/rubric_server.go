@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/storage"
@@ -47,7 +48,7 @@ func (s *RubricServer) UploadRubricResult(
 
 	// Capture client IP and geo location
 	clientIP := getClientIP(ctx, req)
-	geoLocation := s.geoClient.Do(clientIP)
+	geoLocation := s.geoClient.Do(ctx, clientIP)
 
 	// Create a copy of the result with IP and geo data
 	resultWithIP := &proto.Result{
@@ -56,18 +57,24 @@ func (s *RubricServer) UploadRubricResult(
 		Rubric:       result.Rubric,
 		IpAddress:    clientIP,
 		GeoLocation:  geoLocation,
+		Project:      result.Project,
 	}
 
 	// Save to persistent storage
-	err := s.storage.SaveResult(ctx, result.SubmissionId, resultWithIP)
+	err := s.storage.SaveResult(ctx, resultWithIP)
 	if err != nil {
-		slog.Error("Failed to save result to storage", "error", err, "submission_id", result.SubmissionId)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to save result to storage",
+			slog.Any("error", err),
+			slog.String("submission_id", result.SubmissionId),
+		)
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save result: %w", err))
 	}
 
-	slog.Info("Stored rubric result",
-		"submission_id", result.SubmissionId, "items", len(result.Rubric),
-		"ip", clientIP, "location", geoLocation)
+	contextlog.From(ctx).InfoContext(ctx, "Stored rubric result",
+		slog.String("submission_id", result.SubmissionId),
+		slog.Int("items", len(result.Rubric)),
+		slog.String("ip", clientIP),
+		slog.String("location", geoLocation))
 
 	return connect.NewResponse(&proto.UploadRubricResultResponse{
 		SubmissionId: result.SubmissionId,
@@ -94,32 +101,43 @@ type GeoLocationClient struct {
 }
 
 // Do fetches geo location data for an IP address
-func (c *GeoLocationClient) Do(ip string) string {
+func (c *GeoLocationClient) Do(ctx context.Context, ip string) string {
 	if skipGeoLookup(ip) {
 		return localUnknown
 	}
 
 	req, err := newGeoRequest(ip)
 	if err != nil {
-		slog.Warn("Failed to create geo location request", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to create geo location request",
+			slog.String("ip", ip),
+			slog.Any("error", err))
 		return unknownLocation
 	}
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		slog.Warn("Failed to fetch geo location", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to fetch geo location",
+			slog.String("ip", ip),
+			slog.Any("error", err),
+		)
 		return unknownLocation
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("Geo location API returned non-200 status", "ip", ip, "status", resp.StatusCode)
+		contextlog.From(ctx).WarnContext(ctx, "Geo location API returned non-200 status",
+			slog.String("ip", ip),
+			slog.Int("status", resp.StatusCode),
+		)
 		return unknownLocation
 	}
 
 	geo, err := decodeGeoLocation(resp.Body)
 	if err != nil {
-		slog.Warn("Failed to parse geo location response", "ip", ip, "error", err)
+		contextlog.From(ctx).WarnContext(ctx, "Failed to parse geo location response",
+			slog.String("ip", ip),
+			slog.Any("error", err),
+		)
 		return unknownLocation
 	}
 

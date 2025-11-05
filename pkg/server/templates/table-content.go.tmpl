@@ -3,21 +3,17 @@
 <thead>
 <tr>
 <th>Submission ID</th>
-<th>Timestamp</th>
-<th>Total Points</th>
-<th>Awarded Points</th>
+<th>Project</th>
+<th>Uploaded At</th>
 <th>Score</th>
-<th>IP Address</th>
-<th>Location</th>
 </tr>
 </thead>
 <tbody>
 {{range .Submissions}}
 <tr>
 <td><a href="/submissions/{{.SubmissionID}}" class="submission-link"><code class="submission-id">{{.SubmissionID}}</code> 🔗</a></td>
+<td>{{.Project}}</td>
 <td><small>{{.Timestamp.Format "2006-01-02 15:04"}}</small></td>
-<td>{{printf "%.1f" .TotalPoints}}</td>
-<td>{{printf "%.1f" .AwardedPoints}}</td>
 <td>
 {{- if ge .Score 80.0 -}}
 <span class="score-badge score-high">{{printf "%.1f%%" .Score}}</span>
@@ -27,8 +23,6 @@
 <span class="score-badge score-low">{{printf "%.1f%%" .Score}}</span>
 {{- end -}}
 </td>
-<td><code class="submission-id">{{.IPAddress}}</code></td>
-<td><small>{{.GeoLocation}}</small></td>
 </tr>
 {{end}}
 </tbody>

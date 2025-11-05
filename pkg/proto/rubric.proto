@@ -23,6 +23,7 @@ message Result {
   repeated RubricItem rubric = 3;
   string ip_address = 4;
   string geo_location = 5;
+  string project = 6;
 }
 
 message RubricItem {

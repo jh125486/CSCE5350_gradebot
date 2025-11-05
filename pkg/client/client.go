@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"fmt"
@@ -9,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/go-git/go-billy/v5/osfs"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
@@ -98,8 +101,15 @@ type Config struct {
 	// Connect client for the RubricService
 	RubricClient protoconnect.RubricServiceClient
 
-	// Writer is where the resulting rubric table will be written. If nil,
+	// Writer is where the resulting rubric table will be written. If nil, defaults to os.Stdout
 	Writer io.Writer
+
+	// Reader is where to read user input from. If nil, defaults to os.Stdin
+	Reader io.Reader
+
+	// CommandFactory creates commands for execution. If nil, uses ExecCommandFactory.
+	// This allows tests to inject mock implementations.
+	CommandFactory rubrics.CommandFactory
 }
 
 // AuthTransport injects an Authorization header for every outgoing request.
@@ -108,6 +118,8 @@ type AuthTransport struct {
 	token string
 }
 
+// NewAuthTransport creates a new AuthTransport with the given token.
+// If base is nil, http.DefaultTransport is used.
 func NewAuthTransport(token string, base http.RoundTripper) *AuthTransport {
 	if base == nil {
 		base = http.DefaultTransport
@@ -118,6 +130,7 @@ func NewAuthTransport(token string, base http.RoundTripper) *AuthTransport {
 	}
 }
 
+// RoundTrip implements http.RoundTripper by adding an Authorization header to each request.
 func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone request to avoid mutating the original
 	clone := req.Clone(req.Context())
@@ -125,8 +138,19 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(clone)
 }
 
-// uploadRubricResult uploads the rubric result to the server using Connect
-func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient, result *rubrics.Result) error {
+// UploadResult prompts the user for confirmation and uploads the rubric result to the server.
+// If RubricClient is nil, logs and returns without error.
+// If Reader is nil, defaults to os.Stdin for user input.
+func (cfg *Config) UploadResult(ctx context.Context, result *rubrics.Result) error {
+	if cfg.RubricClient == nil {
+		contextlog.From(ctx).InfoContext(ctx, "Skipping upload - no rubric client configured")
+		return nil
+	}
+
+	if !promptForSubmission(ctx, cfg.Writer, cfg.Reader) {
+		return nil
+	}
+
 	// Convert rubrics.Result to protobuf format
 	rubricItems := make([]*proto.RubricItem, len(result.Rubric))
 	for i, item := range result.Rubric {
@@ -143,52 +167,97 @@ func uploadRubricResult(ctx context.Context, c protoconnect.RubricServiceClient,
 			SubmissionId: result.SubmissionID,
 			Timestamp:    result.Timestamp.Format(time.RFC3339),
 			Rubric:       rubricItems,
+			Project:      result.Project,
 		},
 	})
 
-	resp, err := c.UploadRubricResult(ctx, req)
+	resp, err := cfg.RubricClient.UploadRubricResult(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to upload result: %w", err)
 	}
 
-	slog.Info("Successfully uploaded rubric result",
-		"submission_id", result.SubmissionID,
-		"response", resp.Msg,
+	contextlog.From(ctx).InfoContext(ctx, "Successfully uploaded rubric result",
+		slog.String("submission_id", result.SubmissionID),
+		slog.String("response", resp.Msg.Message),
 	)
 
 	return nil
 }
 
-// ExecuteProject1 executes the project1 grading flow using a runtime config.
-func ExecuteProject1(ctx context.Context, cfg *Config) error {
-	factory := &rubrics.ExecCommandFactory{Context: ctx}
-	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, factory)
-	defer func() {
-		if err := program.Kill(); err != nil {
-			slog.Error("failed to kill program", slog.Any("error", err))
-		}
-	}()
-
-	results := rubrics.NewResult()
-	bag := make(rubrics.RunBag)
-
-	// Reset to ensure clean state before running evaluators
-	if err := rubrics.Reset(program); err != nil {
-		slog.Error("failed to reset program state", slog.Any("error", err))
-		return err
+// promptForSubmission asks the user if they want to submit results to the server.
+// Returns true if user confirms, false otherwise.
+// Uses the provided writer for prompts, or os.Stdout if writer is nil.
+// Uses the provided reader for input, or os.Stdin if reader is nil.
+// Accepts "y", "Y", "yes", "YES" (case-insensitive, whitespace-trimmed).
+func promptForSubmission(ctx context.Context, w io.Writer, r io.Reader) bool {
+	if w == nil {
+		w = os.Stdout
+	}
+	if r == nil {
+		r = os.Stdin
 	}
 
-	items := []rubrics.Evaluator{
+	fmt.Fprintf(w, "\nSubmit results to server? (y/n): ")
+	bufReader := bufio.NewReader(r)
+	resp, err := bufReader.ReadString('\n')
+	if err != nil {
+		contextlog.From(ctx).WarnContext(ctx, "Failed to read user input", slog.Any("error", err))
+		return false
+	}
+
+	resp = strings.TrimSpace(resp)
+	resp = strings.ToLower(resp)
+
+	return resp == "y" || resp == "yes"
+}
+
+// ExecuteProject1 executes the project1 grading flow using a runtime config.
+func ExecuteProject1(ctx context.Context, cfg *Config) error {
+	return executeProject(ctx, cfg, "CSCE5350:Project1",
 		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
 		rubrics.EvaluateOverwriteKey,
 		rubrics.EvaluateNonexistentGet,
 		rubrics.EvaluatePersistenceAfterRestart,
+	)
+}
+
+// ExecuteProject2 executes the project2 grading flow using a runtime config.
+func ExecuteProject2(ctx context.Context, cfg *Config) error {
+	return executeProject(ctx, cfg, "CSCE5350:Project2",
+		rubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+		rubrics.EvaluateDeleteExists,
+		rubrics.EvaluateMSetMGet,
+		rubrics.EvaluateTTLBasic,
+		rubrics.EvaluateRange,
+		rubrics.EvaluateTransactions,
+	)
+}
+
+func executeProject(ctx context.Context, cfg *Config, name string, items ...rubrics.Evaluator) error {
+	if cfg.CommandFactory == nil {
+		cfg.CommandFactory = &rubrics.ExecCommandFactory{Context: ctx}
 	}
+	program := rubrics.NewProgram(cfg.Dir.String(), cfg.RunCmd, cfg.CommandFactory)
+	defer func() {
+		if err := program.Kill(); err != nil {
+			contextlog.From(ctx).ErrorContext(ctx, "failed to kill program", slog.Any("error", err))
+		}
+	}()
+
+	results := rubrics.NewResult(name)
+	bag := make(rubrics.RunBag)
+
+	// Reset to ensure clean state before running evaluators
+	if err := rubrics.Reset(program); err != nil {
+		contextlog.From(ctx).ErrorContext(ctx, "failed to reset program state", slog.Any("error", err))
+		return err
+	}
+
 	if cfg.QualityClient != nil {
 		sourceFS := os.DirFS(program.Path())
-		instructions := instructionsFor("project1")
+		instructions := instructionsFor(results.Project)
 		items = append(items, rubrics.EvaluateQuality(cfg.QualityClient, sourceFS, configFS, instructions))
 	}
 	for _, item := range items {
@@ -200,20 +269,11 @@ func ExecuteProject1(ctx context.Context, cfg *Config) error {
 	// Print rubric table to configured writer (default to stdout)
 	results.Render(cfg.Writer)
 
-	// Upload the results to the server
-	if cfg.RubricClient != nil {
-		if err := uploadRubricResult(ctx, cfg.RubricClient, results); err != nil {
-			slog.Error("Failed to upload rubric result", "error", err)
-		}
-	} else {
-		slog.Info("Skipping upload - no rubric client configured")
+	// Upload the results to the server with user confirmation
+	if err := cfg.UploadResult(ctx, results); err != nil {
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to upload rubric result", slog.Any("error", err))
+		// Don't fail the whole execution just because upload failed
 	}
 
-	return nil
-}
-
-// ExecuteProject2 executes the project2 grading flow using a runtime config.
-func ExecuteProject2(_ context.Context, _ *Config) error {
-	// Implementation for executing project2
 	return nil
 }

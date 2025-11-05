@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"embed"
 	"fmt"
 	"html/template"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,9 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/tomasen/realip"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/openai"
 	pb "github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto/protoconnect"
@@ -111,6 +112,7 @@ func extractFromPeer(req IPExtractable) string {
 		if ip, _, err := net.SplitHostPort(peer.Addr); err == nil {
 			return ip
 		}
+		return peer.Addr
 	}
 	return unknownIP
 }
@@ -122,43 +124,41 @@ type TemplateManager struct {
 	tableContentTmpl *template.Template
 }
 
-// NewTemplateManager creates a new template manager with loaded templates
+// NewTemplateManager creates and returns a new template manager with all embedded templates loaded.
+// It registers custom template functions (add, sub) for pagination calculations.
+// It panics if any template fails to parse.
 func NewTemplateManager() *TemplateManager {
 	funcMap := template.FuncMap{
 		"add": func(a, b int) int { return a + b },
 		"sub": func(a, b int) int { return a - b },
-		"ge":  func(a, b float64) bool { return a >= b },
 	}
-
+	templatesDir := filepath.Join("templates", submissionsTmplFile)
 	return &TemplateManager{
 		submissionsTmpl: template.Must(
-			template.New(submissionsTmplFile).
-				Funcs(funcMap).
-				ParseFS(templatesFS, filepath.Join("templates", submissionsTmplFile)),
-		),
+			template.New(submissionsTmplFile).Funcs(funcMap).ParseFS(templatesFS, templatesDir)),
 		submissionTmpl: template.Must(
-			template.New(submissionTmplFile).
-				Funcs(funcMap).
-				ParseFS(templatesFS, filepath.Join("templates", submissionTmplFile)),
-		),
+			template.New(submissionTmplFile).Funcs(funcMap).ParseFS(templatesFS,
+				filepath.Join("templates", submissionTmplFile))),
 		tableContentTmpl: template.Must(
-			template.New("table-content.go.tmpl").
-				Funcs(funcMap).
-				ParseFS(templatesFS, filepath.Join("templates", "table-content.go.tmpl")),
-		),
+			template.New("table-content.go.tmpl").Funcs(funcMap).ParseFS(templatesFS,
+				filepath.Join("templates", "table-content.go.tmpl"))),
 	}
 }
 
+// SubmissionData represents a single submission with its evaluation score and metadata.
+// SubmissionData represents a single submission for display purposes.
+// For the submissions list page, it contains: submission_id, project, uploaded_at, and score.
+// For the submission detail page, it includes the full result data with project info.
 type SubmissionData struct {
-	SubmissionID  string
-	Timestamp     time.Time
-	TotalPoints   float64
-	AwardedPoints float64
-	Score         float64
-	IPAddress     string
-	GeoLocation   string
+	SubmissionID string
+	Project      string
+	Timestamp    time.Time
+	Score        float64
+	IPAddress    string
+	GeoLocation  string
 }
 
+// RubricItemData represents a single rubric item with its point value and awarded score.
 type RubricItemData struct {
 	Name    string
 	Points  float64
@@ -166,6 +166,8 @@ type RubricItemData struct {
 	Note    string
 }
 
+// SubmissionsPageData contains all data needed to render the submissions overview page,
+// including pagination information, submission details, and score statistics.
 type SubmissionsPageData struct {
 	TotalSubmissions int
 	HighScore        float64
@@ -177,27 +179,48 @@ type SubmissionsPageData struct {
 	HasNextPage      bool
 }
 
-// GradingServer represents a grading server
 type (
+	// Config contains the configuration required to start the server.
 	Config struct {
 		ID           string
 		Port         string
 		OpenAIClient openai.Reviewer
 		Storage      storage.Storage
 	}
+	// GradingServer represents a grading server
 	GradingServer struct {
 		ID string
 	}
 )
 
+// QualityServer implements the Quality service for code quality evaluation via AI.
 type QualityServer struct {
 	protoconnect.UnimplementedQualityServiceHandler
 	OpenAIClient openai.Reviewer
 }
 
-// Start handles the server mode logic
+// tlsConfig configures TLS 1.2 with ciphers compatible with corporate proxies.
+// This ensures compatibility with older corporate proxy infrastructure that may not support TLS 1.3.
+func tlsConfig() *tls.Config {
+	//#nosec:G402 // This is needed to get around proxies that don't support TLS 1.3
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		},
+	}
+}
+
+// Start initializes and runs the gRPC/HTTP server on the configured port.
+// It sets up handlers for both Connect RPC services (Quality and Rubric),
+// serves embedded HTML pages for viewing submissions, and provides a health check endpoint.
+// The server is configured with TLS 1.2 for corporate proxy compatibility.
+// It gracefully shuts down on context cancellation or when the listener returns an error.
 func Start(ctx context.Context, cfg Config) error {
-	log.Printf("Server will start on port %s", cfg.Port)
+	contextlog.From(ctx).InfoContext(ctx, "Server will start on port", slog.String("port", cfg.Port))
 	var lc net.ListenConfig
 	lis, err := lc.Listen(ctx, "tcp", ":"+cfg.Port)
 	if err != nil {
@@ -239,8 +262,9 @@ func Start(ctx context.Context, cfg Config) error {
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attacks
+		TLSConfig:         tlsConfig(),
 	}
-	slog.Info("Connect HTTP server listening", "port", cfg.Port)
+	contextlog.From(ctx).InfoContext(ctx, "Connect HTTP server listening", slog.String("port", cfg.Port))
 
 	// Run Serve in goroutine so we can respond to ctx cancellation and
 	// attempt graceful shutdown.
@@ -263,7 +287,7 @@ func Start(ctx context.Context, cfg Config) error {
 }
 
 // parseSubmissionsFromResults converts storage results to submission data
-func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
+func parseSubmissionsFromResults(ctx context.Context, results map[string]*pb.Result) (submissions []SubmissionData, highScore float64) {
 	submissions = make([]SubmissionData, 0, len(results))
 	highScore = 0.0
 
@@ -283,18 +307,20 @@ func parseSubmissionsFromResults(results map[string]*pb.Result) (submissions []S
 
 		timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 		if err != nil {
-			slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+			contextlog.From(ctx).ErrorContext(ctx, "Failed to parse timestamp",
+				slog.Any("error", err),
+				slog.String("timestamp", result.Timestamp),
+			)
 			timestamp = time.Now()
 		}
 
 		submissions = append(submissions, SubmissionData{
-			SubmissionID:  result.SubmissionId,
-			Timestamp:     timestamp,
-			TotalPoints:   totalPoints,
-			AwardedPoints: awardedPoints,
-			Score:         score,
-			IPAddress:     result.IpAddress,
-			GeoLocation:   result.GeoLocation,
+			SubmissionID: result.SubmissionId,
+			Project:      result.Project,
+			Timestamp:    timestamp,
+			Score:        score,
+			IPAddress:    result.IpAddress,
+			GeoLocation:  result.GeoLocation,
 		})
 		if score > highScore {
 			highScore = score
@@ -320,9 +346,9 @@ func getPaginationParams(r *http.Request) (page, pageSize int) {
 		}
 	}
 
-	pageSize = storage.DefaultPageSize
+	pageSize = 20 // Default page size
 	if pageSizeStr != "" {
-		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= storage.MaxPageSize {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
 			pageSize = ps
 		}
 	}
@@ -330,7 +356,7 @@ func getPaginationParams(r *http.Request) (page, pageSize int) {
 	return page, pageSize
 }
 
-// executeTableContent renders the table content for HTMX partial updates using a template
+// executeTableContent renders just the table content for HTMX partial updates using a template
 func executeTableContent(w http.ResponseWriter, data *SubmissionsPageData, rubricServer *RubricServer) error {
 	return rubricServer.templates.tableContentTmpl.Execute(w, data)
 }
@@ -350,13 +376,14 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		PageSize: pageSize,
 	})
 	if err != nil {
-		slog.Error("Failed to list paginated results from storage", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to list paginated results from storage",
+			slog.Any("error", err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Parse submissions and calculate scores
-	submissions, highScore := parseSubmissionsFromResults(results)
+	submissions, highScore := parseSubmissionsFromResults(ctx, results)
 
 	// Calculate pagination with actual total count from storage
 	totalPages := (totalCount + pageSize - 1) / pageSize
@@ -375,18 +402,18 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 		HasNextPage:      page < totalPages,
 	}
 
-	slog.Info("Serving submissions page",
-		"total_submissions", totalCount,
-		"page", page,
-		"total_pages", totalPages,
-		"page_submissions", len(submissions))
+	contextlog.From(ctx).InfoContext(ctx, "Serving submissions page",
+		slog.Int("total_submissions", totalCount),
+		slog.Int("page", page),
+		slog.Int("total_pages", totalPages),
+		slog.Int("page_submissions", len(submissions)))
 
 	// Check if this is an HTMX request (partial update)
 	if r.Header.Get("HX-Request") == "true" {
 		// Return only table content for HTMX
 		w.Header().Set(contentTypeHeader, htmlContentType)
 		if err := executeTableContent(w, &data, rubricServer); err != nil {
-			slog.Error("Failed to execute table content", "error", err)
+			contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 			http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 			return
 		}
@@ -395,7 +422,7 @@ func serveSubmissionsPage(w http.ResponseWriter, r *http.Request, rubricServer *
 
 	// Execute full template for initial page load
 	if err := rubricServer.templates.submissionsTmpl.Execute(w, data); err != nil {
-		slog.Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
@@ -418,7 +445,9 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	ctx := r.Context()
 	result, err := rubricServer.storage.LoadResult(ctx, submissionID)
 	if err != nil {
-		slog.Error("Failed to load result from storage", "error", err, "submission_id", submissionID)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to load result from storage",
+			slog.Any("error", err),
+			slog.String("submission_id", submissionID))
 		http.Error(w, "Submission not found", http.StatusNotFound)
 		return
 	}
@@ -439,7 +468,10 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	// Parse timestamp
 	timestamp, err := time.Parse(time.RFC3339, result.Timestamp)
 	if err != nil {
-		slog.Error("Failed to parse timestamp", "error", err, "timestamp", result.Timestamp)
+		contextlog.From(ctx).ErrorContext(ctx, "Failed to parse timestamp",
+			slog.Any("error", err),
+			slog.String("timestamp", result.Timestamp),
+		)
 		timestamp = time.Now()
 	}
 
@@ -456,6 +488,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 
 	data := struct {
 		SubmissionID  string
+		Project       string
 		Timestamp     time.Time
 		TotalPoints   float64
 		AwardedPoints float64
@@ -465,6 +498,7 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 		Rubric        []RubricItemData
 	}{
 		SubmissionID:  result.SubmissionId,
+		Project:       result.Project,
 		Timestamp:     timestamp,
 		TotalPoints:   totalPoints,
 		AwardedPoints: awardedPoints,
@@ -475,13 +509,16 @@ func serveSubmissionDetailPage(w http.ResponseWriter, r *http.Request, rubricSer
 	}
 
 	if err := rubricServer.templates.submissionTmpl.Execute(w, data); err != nil {
-		slog.Error(templateExecErrMsg, "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, templateExecErrMsg, slog.Any("error", err))
 		http.Error(w, templateExecErrMsg, http.StatusInternalServerError)
 		return
 	}
 }
 
-// AuthRubricHandler wraps the rubric handler with selective authentication
+// AuthRubricHandler returns an HTTP handler that wraps the given handler with selective authentication.
+// It requires authentication (Bearer token) for POST, PUT, and DELETE requests,
+// while allowing GET and HEAD requests without authentication for public submissions viewing.
+// Returns 401 Unauthorized if required authentication is missing or invalid.
 func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a method that requires authentication
@@ -490,7 +527,13 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				slog.Info("Request completed", slog.Any("IP", r.RemoteAddr), slog.Any("duration", duration))
+				ctx := r.Context()
+				contextlog.From(ctx).InfoContext(
+					ctx,
+					"Request completed",
+					slog.String("IP", r.RemoteAddr),
+					slog.Duration("duration", duration),
+				)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -511,14 +554,21 @@ func AuthRubricHandler(handler http.Handler, token string) http.Handler {
 		// No auth required, or auth passed - proceed
 		handler.ServeHTTP(w, r)
 	})
-} // AuthMiddleware returns an http.Handler middleware that enforces authorization
+}
+
+// AuthMiddleware returns a middleware function that validates Bearer token authentication.
+// It verifies the Authorization header contains a valid "Bearer {token}" before allowing the request through.
+// Returns 401 Unauthorized if the token is missing or invalid.
 func AuthMiddleware(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t := time.Now()
 			defer func() {
 				duration := time.Since(t)
-				slog.Info("Request completed", slog.Any("IP", r.RemoteAddr), slog.Any("duration", duration))
+				contextlog.From(r.Context()).InfoContext(r.Context(), "Request completed",
+					slog.String("IP", r.RemoteAddr),
+					slog.Duration("duration", duration),
+				)
 			}()
 			authHeader := r.Header.Get("authorization")
 			if authHeader == "" {
@@ -565,6 +615,9 @@ func requiresAuth(r *http.Request) bool {
 	return r.URL.Path == "/rubric.RubricService/UploadRubricResult"
 }
 
+// EvaluateCodeQuality handles RPC requests to evaluate code quality using AI.
+// It validates that files are provided in the request, calls the OpenAI client to review the code,
+// and returns the review feedback or an error if validation or evaluation fails.
 func (s *QualityServer) EvaluateCodeQuality(
 	ctx context.Context,
 	req *connect.Request[pb.EvaluateCodeQualityRequest],
@@ -576,7 +629,7 @@ func (s *QualityServer) EvaluateCodeQuality(
 
 	review, err := s.OpenAIClient.ReviewCode(ctx, req.Msg.Instructions, req.Msg.Files)
 	if err != nil {
-		slog.Error("failed to review code", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "failed to review code", slog.Any("error", err))
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to review code"))
 	}
 

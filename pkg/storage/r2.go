@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"sync"
 	"time"
 
@@ -16,31 +17,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/proto"
 )
 
-const (
-	// DefaultPageSize is the default number of results per page when not specified
-	DefaultPageSize = 20
-	// MaxPageSize is the maximum allowed results per page
-	MaxPageSize = 100
-)
-
-// ListResultsParams holds pagination parameters for ListResults
-type ListResultsParams struct {
-	Page     int // 1-indexed page number
-	PageSize int // Number of results per page
-}
-
-// Storage defines the interface for persistent storage of rubric results
-type Storage interface {
-	SaveResult(ctx context.Context, submissionID string, result *proto.Result) error
-	LoadResult(ctx context.Context, submissionID string) (*proto.Result, error)
-	ListResultsPaginated(ctx context.Context, params ListResultsParams) (map[string]*proto.Result, int, error)
-}
-
-// Config holds storage configuration
-type Config struct {
+// R2Config holds R2/S3 storage configuration
+type R2Config struct {
 	// For production R2/Cloudflare
 	Endpoint string
 	Region   string
@@ -52,39 +34,28 @@ type Config struct {
 
 	// Addressing style
 	UsePathStyle bool
-
-	// MaxConcurrentFetches limits parallel fetches in ListResultsPaginated.
-	// Default is 30 if not set or <= 0.
-	MaxConcurrentFetches int
-}
-
-// NewConfig creates storage config from provided parameters
-func NewConfig(endpoint, region, bucket, accessKeyID, secretAccessKey string, usePathStyle bool) *Config {
-	if bucket == "" {
-		bucket = "gradebot-storage" // Default bucket name
-	}
-	if region == "" {
-		region = "auto" // Default region
-	}
-	return &Config{
-		Endpoint:        endpoint,
-		Region:          region,
-		Bucket:          bucket,
-		AccessKeyID:     accessKeyID,
-		SecretAccessKey: secretAccessKey,
-		UsePathStyle:    usePathStyle,
-	}
 }
 
 // R2Storage implements Storage using Cloudflare R2 (S3-compatible)
 type R2Storage struct {
+	maxConcurrentFetches int
 	client               *s3.Client
 	bucket               string
-	maxConcurrentFetches int
 }
 
+// This formula allows efficient concurrent object fetches without overwhelming the system,
+// providing approximately 4 concurrent requests per available CPU core.
+const maxConcurrentMultiplier = 4
+
 // NewR2Storage creates a new R2 storage instance
-func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
+func NewR2Storage(ctx context.Context, cfg *R2Config) (*R2Storage, error) {
+	// Apply defaults
+	if cfg.Bucket == "" {
+		cfg.Bucket = "gradebot-storage"
+	}
+	if cfg.Region == "" {
+		cfg.Region = "auto"
+	}
 	// Determine region based on addressing style
 	region := cfg.Region
 	if cfg.UsePathStyle {
@@ -93,9 +64,15 @@ func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
 	}
 
 	if cfg.UsePathStyle {
-		slog.Info("Using path-style addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+		contextlog.From(ctx).InfoContext(ctx, "Using path-style addressing for storage",
+			slog.String("endpoint", cfg.Endpoint),
+			slog.String("region", region),
+		)
 	} else {
-		slog.Info("Using virtual-hosted addressing for storage", "endpoint", cfg.Endpoint, "region", region)
+		contextlog.From(ctx).InfoContext(ctx, "Using virtual-hosted addressing for storage",
+			slog.String("endpoint", cfg.Endpoint),
+			slog.String("region", region),
+		)
 	}
 
 	awsCfg, err := config.LoadDefaultConfig(ctx,
@@ -115,15 +92,10 @@ func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
 		o.BaseEndpoint = &cfg.Endpoint
 	})
 
-	maxConcurrentFetches := cfg.MaxConcurrentFetches
-	if maxConcurrentFetches <= 0 {
-		maxConcurrentFetches = 30 // Default concurrency limit
-	}
-
 	storage := &R2Storage{
+		maxConcurrentFetches: maxConcurrentMultiplier * runtime.NumCPU(),
 		client:               client,
 		bucket:               cfg.Bucket,
-		maxConcurrentFetches: maxConcurrentFetches,
 	}
 
 	// Ensure bucket exists, create if it doesn't
@@ -135,7 +107,14 @@ func NewR2Storage(ctx context.Context, cfg *Config) (*R2Storage, error) {
 }
 
 // SaveResult saves a rubric result to storage
-func (r *R2Storage) SaveResult(ctx context.Context, submissionID string, result *proto.Result) error {
+func (r *R2Storage) SaveResult(ctx context.Context, result *proto.Result) error {
+	if result == nil {
+		return fmt.Errorf("result cannot be nil")
+	}
+	if result.SubmissionId == "" {
+		return fmt.Errorf("submission ID is required")
+	}
+
 	start := time.Now()
 	marshaler := protojson.MarshalOptions{
 		UseProtoNames:   true,
@@ -146,7 +125,7 @@ func (r *R2Storage) SaveResult(ctx context.Context, submissionID string, result 
 		return fmt.Errorf("failed to marshal result: %w", err)
 	}
 
-	key := fmt.Sprintf("submissions/%s.json", submissionID)
+	key := fmt.Sprintf("submissions/%s.json", result.SubmissionId)
 
 	_, err = r.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &r.bucket,
@@ -158,8 +137,8 @@ func (r *R2Storage) SaveResult(ctx context.Context, submissionID string, result 
 		return fmt.Errorf("failed to save result to R2: %w", err)
 	}
 
-	slog.Info("Saved rubric result",
-		slog.String("submission_id", submissionID),
+	contextlog.From(ctx).InfoContext(ctx, "Saved rubric result",
+		slog.String("submission_id", result.SubmissionId),
 		slog.String("bucket", r.bucket),
 		slog.Duration("duration", time.Since(start)),
 	)
@@ -193,75 +172,13 @@ func (r *R2Storage) LoadResult(ctx context.Context, submissionID string) (*proto
 	if err := unmarshaler.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode result: %w", err)
 	}
-	slog.Info("Loaded rubric result",
+	contextlog.From(ctx).InfoContext(ctx, "Loaded rubric result",
 		slog.String("submission_id", submissionID),
 		slog.String("bucket", r.bucket),
 		slog.Duration("duration", time.Since(start)),
 	)
 
 	return &result, nil
-}
-
-// ListResultsPaginated loads rubric results with pagination, only fetching the requested page.
-// If the requested page exceeds available pages, returns the last page. Page numbers start at 1.
-func (r *R2Storage) ListResultsPaginated(
-	ctx context.Context,
-	params ListResultsParams,
-) (results map[string]*proto.Result, totalCount int, err error) {
-	start := time.Now()
-
-	if params.Page < 1 {
-		params.Page = 1
-	}
-	if params.PageSize < 1 || params.PageSize > MaxPageSize {
-		params.PageSize = DefaultPageSize
-	}
-
-	// Collect all keys from storage
-	allKeys, err := r.collectAllKeys(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	totalCount = len(allKeys)
-
-	// Calculate pagination boundaries
-	startIdx, endIdx := calculatePaginationBounds(params.Page, params.PageSize, totalCount)
-
-	// Fetch results for this page in parallel
-	pageKeys := allKeys[startIdx:endIdx]
-	results = r.loadResultsParallel(ctx, pageKeys)
-
-	slog.Info("Listed paginated rubric results",
-		slog.Int("page", params.Page),
-		slog.Int("page_size", params.PageSize),
-		slog.Int("total_count", totalCount),
-		slog.Int("returned", len(results)),
-		slog.String("bucket", r.bucket),
-		slog.Duration("duration", time.Since(start)),
-	)
-
-	return results, totalCount, nil
-}
-
-func calculatePaginationBounds(page, pageSize, totalCount int) (startIdx, endIdx int) {
-	// Handle empty results
-	if totalCount == 0 {
-		return 0, 0
-	}
-
-	startIdx = (page - 1) * pageSize
-	endIdx = startIdx + pageSize
-
-	// If requested page is beyond available pages, clamp to valid range
-	if startIdx >= totalCount {
-		startIdx = max(totalCount-pageSize, 0)
-		endIdx = totalCount
-	} else if endIdx > totalCount {
-		endIdx = totalCount
-	}
-
-	return startIdx, endIdx
 }
 
 // collectAllKeys retrieves all submission object keys from storage
@@ -295,6 +212,45 @@ func (r *R2Storage) collectAllKeys(ctx context.Context) ([]string, error) {
 	return allKeys, nil
 }
 
+// ListResultsPaginated fetches a paginated list of results from storage
+func (r *R2Storage) ListResultsPaginated(ctx context.Context, params ListResultsParams) (
+	results map[string]*proto.Result, totalCount int, err error) {
+	start := time.Now()
+
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 || params.PageSize > 1000 {
+		params.PageSize = 20 // Default
+	}
+
+	// Collect all keys from storage
+	allKeys, err := r.collectAllKeys(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	totalCount = len(allKeys)
+
+	// Calculate pagination boundaries
+	startIdx, endIdx := params.CalculatePaginationBounds(totalCount)
+
+	// Fetch results for this page in parallel
+	pageKeys := allKeys[startIdx:endIdx]
+	results = r.loadResultsParallel(ctx, pageKeys)
+
+	contextlog.From(ctx).InfoContext(ctx, "Listed paginated rubric results",
+		slog.Int("page", params.Page),
+		slog.Int("page_size", params.PageSize),
+		slog.Int("total_count", totalCount),
+		slog.Int("returned", len(results)),
+		slog.String("bucket", r.bucket),
+		slog.Duration("duration", time.Since(start)),
+	)
+
+	return results, totalCount, nil
+}
+
 // loadResultsParallel fetches multiple results concurrently using errgroup
 func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[string]*proto.Result {
 	results := make(map[string]*proto.Result)
@@ -302,14 +258,17 @@ func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[
 
 	// Create errgroup with context for better error handling and context cancellation
 	wg, ctx := errgroup.WithContext(ctx)
-	wg.SetLimit(r.maxConcurrentFetches) // Limit concurrent requests based on config
+	wg.SetLimit(r.maxConcurrentFetches)
 
 	for _, key := range keys {
 		wg.Go(func() error {
 			submissionID := key[12 : len(key)-5] // Remove "submissions/" prefix and ".json" suffix
 			result, err := r.LoadResult(ctx, submissionID)
 			if err != nil {
-				slog.Warn("Failed to load result", "submission_id", submissionID, "error", err)
+				contextlog.From(ctx).WarnContext(ctx, "Failed to load result",
+					slog.String("submission_id", submissionID),
+					slog.Any("error", err),
+				)
 				return nil // Don't fail entire batch on single error
 			}
 
@@ -323,7 +282,7 @@ func (r *R2Storage) loadResultsParallel(ctx context.Context, keys []string) map[
 
 	// Wait for all goroutines to complete
 	if err := wg.Wait(); err != nil {
-		slog.Error("Error loading results in parallel", "error", err)
+		contextlog.From(ctx).ErrorContext(ctx, "Error loading results in parallel", slog.Any("error", err))
 	}
 
 	return results
@@ -338,7 +297,7 @@ func (r *R2Storage) ensureBucketExists(ctx context.Context) error {
 	})
 	if err != nil {
 		// If bucket doesn't exist, try to create it
-		slog.Info("Bucket does not exist, attempting to create", "bucket", r.bucket)
+		contextlog.From(ctx).InfoContext(ctx, "Bucket does not exist, attempting to create", slog.String("bucket", r.bucket))
 
 		_, createErr := r.client.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: &r.bucket,
@@ -348,10 +307,15 @@ func (r *R2Storage) ensureBucketExists(ctx context.Context) error {
 			return fmt.Errorf("failed to create bucket %s: %w", r.bucket, createErr)
 		}
 
-		slog.Info("Successfully created bucket", "bucket", r.bucket)
+		contextlog.From(ctx).InfoContext(ctx, "Successfully created bucket", slog.String("bucket", r.bucket))
 		return nil
 	}
 
-	slog.Info("Bucket already exists", "bucket", r.bucket)
+	contextlog.From(ctx).InfoContext(ctx, "Bucket already exists", slog.String("bucket", r.bucket))
+	return nil
+}
+
+// Close closes the storage connection (no-op for R2/S3)
+func (r *R2Storage) Close() error {
 	return nil
 }

@@ -12,6 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
+      postgres:
+        image: postgres:18-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: gradebot_test
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
       localstack:
         image: localstack/localstack:latest
         ports:
@@ -46,6 +60,7 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.txt ./...
         env:
+          DATABASE_URL: "postgres://postgres:password@localhost:5432/gradebot_test?sslmode=disable"
           R2_ENDPOINT: http://localhost:4566
           R2_BUCKET: test-gradebot-bucket
           AWS_ACCESS_KEY_ID: test
