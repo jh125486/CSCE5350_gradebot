@@ -2,7 +2,7 @@ module github.com/jh125486/CSCE5350_gradebot
 
 go 1.24.0
 
-require github.com/docker/docker v28.5.1+incompatible
+require github.com/docker/docker v28.5.2+incompatible
 
 require (
 	connectrpc.com/connect v1.19.1
@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.39.6
 	github.com/aws/aws-sdk-go-v2/config v1.31.17
 	github.com/aws/aws-sdk-go-v2/credentials v1.18.21
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.89.2
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.90.0
 	github.com/go-git/go-billy/v5 v5.6.2
 	github.com/go-git/go-git/v5 v5.16.3
 	github.com/google/go-cmp v0.7.0

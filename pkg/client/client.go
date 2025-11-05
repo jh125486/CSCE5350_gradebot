@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"crypto/tls"
+
 	"connectrpc.com/connect"
 	"github.com/go-git/go-billy/v5/osfs"
 
@@ -122,11 +124,42 @@ type AuthTransport struct {
 // If base is nil, http.DefaultTransport is used.
 func NewAuthTransport(token string, base http.RoundTripper) *AuthTransport {
 	if base == nil {
-		base = http.DefaultTransport
+		base = defaultTLSTransport()
+	} else {
+		if transport, ok := base.(*http.Transport); ok {
+			clone := transport.Clone()
+			clone.TLSClientConfig = clientTLSConfig()
+			base = clone
+		}
 	}
 	return &AuthTransport{
 		base:  base,
 		token: token,
+	}
+}
+
+// defaultTLSTransport clones http.DefaultTransport with a TLS config that mirrors the
+// server's downgraded TLS settings so clients can communicate through strict proxies.
+func defaultTLSTransport() *http.Transport {
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		clone := transport.Clone()
+		clone.TLSClientConfig = clientTLSConfig()
+		return clone
+	}
+	return &http.Transport{TLSClientConfig: clientTLSConfig()}
+}
+
+// clientTLSConfig matches the server TLS policy (TLS 1.2 + modern cipher suites) to keep
+// Connect/gRPC requests compatible with corporate middleboxes that block TLS 1.3.
+func clientTLSConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		},
 	}
 }
 
