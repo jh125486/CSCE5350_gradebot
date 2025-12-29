@@ -23,6 +23,8 @@ All code must follow idiomatic Go conventions and standard library best practice
 
 ### Required: All tests must be table-driven
 
+- One table-driven test per exportedfunction, covering all edge cases.
+
 ✅ **DO:**
 ```go
 func TestFoo(t *testing.T) {
@@ -266,8 +268,8 @@ func TestListResultsPaginated(t *testing.T) {
 
 ### Configuration
 ```go
-// Use constructor pattern with defaults
-func NewConfig(endpoint, bucket string) *Config {
+// Use constructor pattern with required params and defaults
+func NewConfig(endpoint, bucket string, opts ...func(*Config)) *Config {
     cfg := &Config{
         Endpoint: endpoint,
         Bucket:   bucket,

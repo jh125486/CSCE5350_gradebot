@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: GoReleaser
@@ -28,56 +28,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUILD_ID: ${{ secrets.BUILD_ID }}
-
-  # --- Deploy to Koyeb --- server
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install and configure the Koyeb CLI
-        uses: koyeb-community/koyeb-actions@v2
-        with:
-          api_token: "${{ secrets.KOYEB_API_TOKEN }}"
-      - name: Create OpenAI API key secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: OPENAI_API_KEY
-          secret-value: "${{ secrets.OPENAI_API_KEY }}"
-      - name: Create Build ID secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: BUILD_ID
-          secret-value: "${{ secrets.BUILD_ID }}"
-      - name: Create SQL secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: DATABASE_URL
-          secret-value: "${{ secrets.DATABASE_URL }}"
-      - name: Create R2 Endpoint secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: R2_ENDPOINT
-          secret-value: "${{ secrets.R2_ENDPOINT }}"
-      - name: Create AWS Access Key ID secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: AWS_ACCESS_KEY_ID
-          secret-value: "${{ secrets.AWS_ACCESS_KEY_ID }}"
-      - name: Create AWS Secret Access Key secret
-        uses: koyeb/action-git-deploy/secret@v1
-        with:
-          secret-name: AWS_SECRET_ACCESS_KEY
-          secret-value: "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-      - name: Deploy to Koyeb
-        uses: koyeb/action-git-deploy@v1
-        with:
-          git-url: github.com/jh125486/CSCE5350_gradebot
-          git-branch: main
-          git-builder: buildpack
-          git-run-command: ./bin/CSCE5350_gradebot server
-          service-regions: was
-          service-instance-type: free
-          service-env: OPENAI_API_KEY=@OPENAI_API_KEY,BUILD_ID=@BUILD_ID,DATABASE_URL=@DATABASE_URL,R2_ENDPOINT=@R2_ENDPOINT,AWS_ACCESS_KEY_ID=@AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY=@AWS_SECRET_ACCESS_KEY
-          service-ports: "8080:http"
-          service-routes: "/:8080"
-          app-name: gradebot
-          service-name: gradebot-server
