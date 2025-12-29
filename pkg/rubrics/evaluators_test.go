@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
 	"github.com/jh125486/CSCE5350_gradebot/pkg/rubrics"
+	"github.com/jh125486/gradebot/pkg/contextlog"
+	baserubrics "github.com/jh125486/gradebot/pkg/rubrics"
 )
 
 // Command constants for KV store operations
@@ -46,6 +47,7 @@ type kvStoreMock struct {
 	returnEmptyOnGet bool
 	returnWrongOnGet bool
 	customDoFunc     func(input string) ([]string, []string, error)
+	doFuncs          []func(input string) ([]string, []string, error) // Sequential function queue
 }
 
 func newKVStoreMock(t *testing.T) *kvStoreMock {
@@ -76,8 +78,24 @@ func (m *kvStoreMock) Kill() error {
 	return m.killErr
 }
 
+func (m *kvStoreMock) Cleanup(ctx context.Context) error {
+	// Remove data.db file to simulate cleanup
+	dbPath := filepath.Join(m.tempDir, rubrics.DataFileName)
+	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (m *kvStoreMock) Do(input string) (stdout, stderr []string, err error) {
 	m.doCallCount++
+
+	// Use sequential function queue if available
+	if len(m.doFuncs) > 0 {
+		fn := m.doFuncs[0]
+		m.doFuncs = m.doFuncs[1:]
+		return fn(input)
+	}
 
 	// Allow custom function to override default behavior
 	if m.customDoFunc != nil {
@@ -224,7 +242,7 @@ func TestEvaluateDataFileCreated(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 
 			// Apply test-specific setup
@@ -312,7 +330,7 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 
 			// Apply test-specific setup
@@ -377,7 +395,7 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			mock := newKVStoreMock(t)
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 
 			// Apply test-specific setup
 			tt.setupMock(mock)
@@ -391,11 +409,11 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 }
 
 // simpleMockProgram implements model.ProgramRunner for EvaluateSetGet tests.
-type resp func(rubrics.RunBag) (string, string, error)
+type resp func(baserubrics.RunBag) (string, string, error)
 
 // simpleMockProgram implements model.ProgramRunner for EvaluateSetGet tests.
 type simpleMockProgram struct {
-	bag       rubrics.RunBag
+	bag       baserubrics.RunBag
 	responses []resp
 	runErr    error
 }
@@ -417,12 +435,13 @@ func (s *simpleMockProgram) Do(in string) (stdout, stderr []string, err error) {
 	}
 	return []string{}, []string{}, nil
 }
-func (s *simpleMockProgram) Kill() error { return nil }
+func (s *simpleMockProgram) Kill() error                       { return nil }
+func (s *simpleMockProgram) Cleanup(ctx context.Context) error { return nil }
 
 func TestEvaluateSetGet_Table(t *testing.T) {
 	tests := []struct {
 		name           string
-		responses      func(bag rubrics.RunBag) []resp
+		responses      func(bag baserubrics.RunBag) []resp
 		runErr         error
 		wantPoints     float64
 		wantNoteSubstr string
@@ -430,10 +449,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 	}{
 		{
 			name: "Success",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil }, // SET
-					func(rb rubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil }, // SET
+					func(rb baserubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
 				}
 			},
 			runErr:         nil,
@@ -443,7 +462,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name:           "RunFails",
-			responses:      func(bag rubrics.RunBag) []resp { return nil },
+			responses:      func(bag baserubrics.RunBag) []resp { return nil },
 			runErr:         errors.New("run failed"),
 			wantPoints:     0,
 			wantNoteSubstr: "Execution failed",
@@ -451,9 +470,9 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "SetError",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", errors.New("set failed") },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", errors.New("set failed") },
 				}
 			},
 			wantPoints:     0,
@@ -462,10 +481,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetMismatch",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return "wrong", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "wrong", "", nil },
 				}
 			},
 			wantPoints:     0,
@@ -474,10 +493,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetError",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", errors.New("get failed") },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", errors.New("get failed") },
 				}
 			},
 			wantPoints:     0,
@@ -486,10 +505,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetUnexpectedErrorOut",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return rb["key1"].(string), "pizza", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return rb["key1"].(string), "pizza", nil },
 				}
 			},
 			wantPoints:     5,
@@ -498,10 +517,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "SetLogging",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "stdout", "stderr", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "stdout", "stderr", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
 				}
 			},
 			wantPoints:     5,
@@ -510,10 +529,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetEmpty",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
 				}
 			},
 			wantPoints:     0,
@@ -522,10 +541,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "SetWithStderr",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "set stderr", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "set stderr", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return rb["key1"].(string), "", nil },
 				}
 			},
 			wantPoints:     5,
@@ -534,10 +553,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetNoOutput",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return "EMPTY", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "EMPTY", "", nil },
 				}
 			},
 			wantPoints:     0,
@@ -546,10 +565,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetWithSpaces",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return " " + rb["key1"].(string) + " ", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return " " + rb["key1"].(string) + " ", "", nil },
 				}
 			},
 			wantPoints:     5,
@@ -558,10 +577,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetWithPromptCharacters",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return "> " + rb["key1"].(string), "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "> " + rb["key1"].(string), "", nil },
 				}
 			},
 			wantPoints:     5,
@@ -570,10 +589,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetWithLeadingNonAlphanumeric",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) { return ">>> " + rb["key1"].(string), "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return ">>> " + rb["key1"].(string), "", nil },
 				}
 			},
 			wantPoints:     5,
@@ -582,10 +601,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetWithLeadingSymbolsNoSuffix",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) {
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) {
 						// Return with leading symbols but add trailing text so HasSuffix fails
 						return ">>> " + rb["key1"].(string) + " (extra)", "", nil
 					},
@@ -597,10 +616,10 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		},
 		{
 			name: "GetWithLeadingSymbolsOnlyTrimLeftWorks",
-			responses: func(bag rubrics.RunBag) []resp {
+			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
-					func(rb rubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb rubrics.RunBag) (string, string, error) {
+					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) {
 						// Return with leading symbols and space ONLY (no suffix match)
 						// Add a newline after to prevent HasSuffix from matching
 						return " >>>" + rb["key1"].(string) + "\n", "", nil
@@ -617,7 +636,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Setup
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			prog := &simpleMockProgram{bag: bag, responses: tt.responses(bag), runErr: tt.runErr}
 			// Test
 			item := rubrics.EvaluateSetGet(contextlog.With(t.Context(), contextlog.DiscardLogger()), prog, bag)
@@ -753,7 +772,7 @@ func TestEvaluateOverwriteKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 			program := newKVStoreMock(t)
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 
 			// Apply test-specific setup
 			tt.setupMock(program)
@@ -781,6 +800,10 @@ func (m *MockProgramRunner) Do(input string) (stdout, stderr []string, err error
 }
 
 func (m *MockProgramRunner) Kill() error {
+	return nil
+}
+
+func (m *MockProgramRunner) Cleanup(ctx context.Context) error {
 	return nil
 }
 
@@ -960,7 +983,7 @@ func TestEvaluateDeleteExists_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 			tt.setupMock(mock)
 
@@ -1038,6 +1061,52 @@ func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 			wantNoteSubstr: "returned wrong value",
 		},
 		{
+			name: "MGET second value wrong",
+			setupMock: func(m *kvStoreMock) {
+				var capturedKeys []string
+				var capturedVals []string
+				m.customDoFunc = func(input string) ([]string, []string, error) {
+					tokens := strings.Fields(input)
+					if len(tokens) > 0 && tokens[0] == "MSET" {
+						// Capture keys and values from MSET
+						for i := 1; i < len(tokens)-1; i += 2 {
+							if i+1 < len(tokens) {
+								capturedKeys = append(capturedKeys, tokens[i])
+								capturedVals = append(capturedVals, tokens[i+1])
+							}
+						}
+						return []string{""}, []string{}, nil
+					}
+					if len(tokens) > 0 && tokens[0] == "MGET" {
+						// MGET queries: keyB, keyA, keyZ
+						// Return correct value for keyB, wrong for keyA
+						var results []string
+						for i := 1; i < len(tokens); i++ {
+							found := false
+							for j, k := range capturedKeys {
+								if k == tokens[i] {
+									if i == 2 { // keyA is second position
+										results = append(results, "WRONG-VALUE")
+									} else {
+										results = append(results, capturedVals[j])
+									}
+									found = true
+									break
+								}
+							}
+							if !found {
+								results = append(results, "")
+							}
+						}
+						return results, []string{}, nil
+					}
+					return []string{""}, []string{}, nil
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned wrong value",
+		},
+		{
 			name: "MGET third value not nil",
 			setupMock: func(m *kvStoreMock) {
 				var capturedKeys []string
@@ -1084,7 +1153,7 @@ func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 			tt.setupMock(mock)
 
@@ -1241,7 +1310,7 @@ func TestEvaluateTTLBasic_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 			tt.setupMock(mock)
 
@@ -1363,7 +1432,7 @@ func TestEvaluateRange_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 			tt.setupMock(mock)
 
@@ -1667,12 +1736,693 @@ func TestEvaluateTransactions_Detailed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bag := make(rubrics.RunBag)
+			bag := make(baserubrics.RunBag)
 			mock := newKVStoreMock(t)
 			tt.setupMock(mock)
 
 			result := rubrics.EvaluateTransactions(ctx, mock, bag)
 
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+// TestDeleteExistsErrorPaths tests all error branches in EvaluateDeleteExists
+func TestDeleteExistsErrorPaths(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "checkExistsBeforeDel_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                 // SET
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("exists error") }, // EXISTS
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXISTS failed",
+		},
+		{
+			name: "checkExistsBeforeDel_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },    // SET
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil }, // EXISTS (should be 1)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "wrong value",
+		},
+		{
+			name: "checkDelOperation_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXISTS
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("del error") }, // DEL
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "DEL failed",
+		},
+		{
+			name: "checkDelOperation_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },    // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // EXISTS
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil }, // DEL (should be 1)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "wrong value",
+		},
+		{
+			name: "checkExistsAfterDel_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                 // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },              // EXISTS before
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },              // DEL
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("exists error") }, // EXISTS after
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXISTS after DEL failed",
+		},
+		{
+			name: "checkExistsAfterDel_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },    // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // EXISTS before
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // DEL
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil }, // EXISTS after (should be 0)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "wrong value",
+		},
+		{
+			name: "checkGetAfterDel_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXISTS before
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // DEL
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil },           // EXISTS after
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after DEL failed",
+		},
+		{
+			name: "checkGetAfterDel_returns_non_nil_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // EXISTS before
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // DEL
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil },          // EXISTS after
+					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET (should be nil)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(mock)
+			result := rubrics.EvaluateDeleteExists(ctx, mock, make(baserubrics.RunBag))
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+// TestTTLBasicErrorPaths tests all error branches in EvaluateTTLBasic
+func TestTTLBasicErrorPaths(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "checkExpireOperation_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                 // SET
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("expire error") }, // EXPIRE
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXPIRE failed",
+		},
+		{
+			name: "checkExpireOperation_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },    // SET
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil }, // EXPIRE (should be 1)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return 1",
+		},
+		{
+			name: "checkGetBeforeExpiry_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXPIRE
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET failed",
+		},
+		{
+			name: "checkGetBeforeExpiry_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "wrong value",
+		},
+		{
+			name: "checkGetAfterExpiry_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET before expiry
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET after expiry
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after expiry failed",
+		},
+		{
+			name: "checkGetAfterExpiry_returns_non_nil_value",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },         // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },    // GET before expiry
+					func(input string) ([]string, []string, error) { return []string{"stillhere"}, nil, nil }, // GET after expiry (should be nil)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return nil",
+		},
+		{
+			name: "checkTTLAfterExpiry_returns_error",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET before expiry
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after expiry
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("ttl error") }, // TTL
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "TTL failed",
+		},
+		{
+			name: "checkTTLAfterExpiry_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },      // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil }, // GET before expiry
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },       // GET after expiry
+					func(input string) ([]string, []string, error) { return []string{"-1"}, nil, nil },     // TTL (should be -2)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return -2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(mock)
+			result := rubrics.EvaluateTTLBasic(ctx, mock, make(baserubrics.RunBag))
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+// TestOverwriteKeyErrorPath tests the second SET failing in EvaluateOverwriteKey
+func TestOverwriteKeyErrorPath(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	t.Run("second_SET_fails", func(t *testing.T) {
+		mock := newKVStoreMock(t)
+		mock.doFuncs = []func(string) ([]string, []string, error){
+			func(input string) ([]string, []string, error) { return []string{}, nil, nil },                      // First SET
+			func(input string) ([]string, []string, error) { return nil, nil, errors.New("second set failed") }, // Second SET
+		}
+		result := rubrics.EvaluateOverwriteKey(ctx, mock, make(baserubrics.RunBag))
+		assert.Equal(t, float64(0), result.Awarded)
+		assert.Contains(t, result.Note, "Execution failed")
+	})
+
+	t.Run("GET_fails", func(t *testing.T) {
+		mock := newKVStoreMock(t)
+		mock.doFuncs = []func(string) ([]string, []string, error){
+			func(input string) ([]string, []string, error) { return []string{}, nil, nil },               // First SET
+			func(input string) ([]string, []string, error) { return []string{}, nil, nil },               // Second SET
+			func(input string) ([]string, []string, error) { return nil, nil, errors.New("get failed") }, // GET
+		}
+		result := rubrics.EvaluateOverwriteKey(ctx, mock, make(baserubrics.RunBag))
+		assert.Equal(t, float64(0), result.Awarded)
+		assert.Contains(t, result.Note, "Execution failed")
+	})
+}
+
+// TestMSetMGetErrorPaths tests error paths in EvaluateMSetMGet
+func TestMSetMGetErrorPaths(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "MGET_returns_too_few_lines",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },               // MSET
+					func(input string) ([]string, []string, error) { return []string{"val1", "val2"}, nil, nil }, // MGET (need 3)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "too few lines",
+		},
+		{
+			name: "MSET_fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("mset error") }, // MSET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "MSET failed",
+		},
+		{
+			name: "MGET_fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },               // MSET
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("mget error") }, // MGET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "MGET failed",
+		},
+		{
+			name: "MGET_returns_wrong_value_for_first_key",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                    // MSET
+					func(input string) ([]string, []string, error) { return []string{"wrong", "val2", ""}, nil, nil }, // MGET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned wrong value",
+		},
+		{
+			name: "MGET_returns_wrong_value_for_second_key",
+			setupMock: func(m *kvStoreMock) {
+				var valB string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						// Parse MSET keyA valA keyB valB keyX valX
+						tokens := strings.Fields(input)
+						if len(tokens) >= 7 {
+							valB = tokens[4] // valB
+						}
+						return []string{}, nil, nil
+					}, // MSET
+					func(input string) ([]string, []string, error) {
+						// MGET keyB keyA keyZ -> should return valB, valA, nil
+						return []string{valB, "wrong", ""}, nil, nil
+					}, // MGET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned wrong value",
+		},
+		{
+			name: "MGET_returns_non_nil_for_nonexistent_key",
+			setupMock: func(m *kvStoreMock) {
+				var valA, valB string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 7 {
+							valA = tokens[2]
+							valB = tokens[4]
+						}
+						return []string{}, nil, nil
+					}, // MSET
+					func(input string) ([]string, []string, error) {
+						return []string{valB, valA, "wrongvalue"}, nil, nil
+					}, // MGET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(mock)
+			result := rubrics.EvaluateMSetMGet(ctx, mock, make(baserubrics.RunBag))
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+// TestTransactionsErrorPaths tests error paths in EvaluateTransactions
+func TestTransactionsErrorPaths(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	tests := []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "abort_BEGIN_fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("begin error") }, // BEGIN
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "BEGIN failed",
+		},
+		{
+			name: "abort_SET_in_transaction_fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("set error") }, // SET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "SET in transaction failed",
+		},
+		{
+			name: "abort_GET_in_transaction_fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET in transaction failed",
+		},
+		{
+			name: "abort_GET_in_transaction_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // BEGIN
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
+					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET in transaction should return",
+		},
+		{
+			name: "abort_ABORT_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },        // GET
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("abort error") }, // ABORT
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "ABORT failed",
+		},
+		{
+			name: "abort_GET_after_ABORT_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET after ABORT
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after ABORT failed",
+		},
+		{
+			name: "abort_GET_after_ABORT_returns_non_nil",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },     // GET
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // ABORT
+					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET after ABORT
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "should return nil",
+		},
+		{
+			name: "commit_BEGIN_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (abort)
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },        // GET (abort)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                // ABORT
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },              // GET after ABORT
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("begin error") }, // BEGIN (commit)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Second BEGIN failed",
+		},
+		{
+			name: "commit_SET_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setValue string
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (abort)
+					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET (abort)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("set error") }, // SET (commit)
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "SET in second transaction failed",
+		},
+		{
+			name: "commit_COMMIT_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setAbortValue, setCommitValue string
+				_ = setCommitValue
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setAbortValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (abort)
+					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setCommitValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (commit)
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("commit error") }, // COMMIT
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "COMMIT failed",
+		},
+		{
+			name: "commit_GET_after_restart_fails",
+			setupMock: func(m *kvStoreMock) {
+				var setAbortValue, setCommitValue string
+				_ = setCommitValue
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setAbortValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (abort)
+					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setCommitValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (commit)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // COMMIT
+					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET after restart
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after restart failed",
+		},
+		{
+			name: "commit_GET_after_restart_returns_wrong_value",
+			setupMock: func(m *kvStoreMock) {
+				var setAbortValue, setCommitValue string
+				_ = setCommitValue
+				m.doFuncs = []func(string) ([]string, []string, error){
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setAbortValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (abort)
+					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
+					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
+					func(input string) ([]string, []string, error) {
+						tokens := strings.Fields(input)
+						if len(tokens) >= 3 {
+							setCommitValue = tokens[2]
+						}
+						return []string{}, nil, nil
+					}, // SET (commit)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // COMMIT
+					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET after restart
+				}
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after restart should return",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(mock)
+			result := rubrics.EvaluateTransactions(ctx, mock, make(baserubrics.RunBag))
 			assert.Equal(t, tt.wantPoints, result.Awarded)
 			assert.Contains(t, result.Note, tt.wantNoteSubstr)
 		})

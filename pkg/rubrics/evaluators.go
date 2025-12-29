@@ -12,7 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/jh125486/CSCE5350_gradebot/pkg/contextlog"
+	"github.com/jh125486/gradebot/pkg/contextlog"
+	baserubrics "github.com/jh125486/gradebot/pkg/rubrics"
 )
 
 const (
@@ -31,8 +32,29 @@ const (
 	getCommandFmt      = "GET %s"
 )
 
+// trimPromptChars removes leading non-alphanumeric characters (prompt characters) from a string
+func trimPromptChars(s string) string {
+	return strings.TrimLeftFunc(s, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '-'
+	})
+}
+
+// newRubricItem creates a helper function for building rubric items with a fixed name and points
+//
+//nolint:unparam // points varies across different evaluators
+func newRubricItem(name string, points float64) func(string, float64) baserubrics.RubricItem {
+	return func(msg string, awarded float64) baserubrics.RubricItem {
+		return baserubrics.RubricItem{
+			Name:    name,
+			Note:    msg,
+			Awarded: awarded,
+			Points:  points,
+		}
+	}
+}
+
 // Reset removes any existing data.db to ensure clean state
-func Reset(program ProgramRunner) error {
+func Reset(program baserubrics.ProgramRunner) error {
 	dataFilePath := filepath.Join(program.Path(), DataFileName)
 	if err := os.Remove(dataFilePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove existing data.db: %w", err)
@@ -41,15 +63,8 @@ func Reset(program ProgramRunner) error {
 }
 
 // EvaluateDataFileCreated checks that data.db is created after a SET
-func EvaluateDataFileCreated(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "DataFileCreated",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateDataFileCreated(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("DataFileCreated", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -68,15 +83,10 @@ func EvaluateDataFileCreated(ctx context.Context, program ProgramRunner, bag Run
 }
 
 // EvaluatePersistenceAfterRestart kills and restarts the program, then checks GET
-func EvaluatePersistenceAfterRestart(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "PersistenceAfterRestart",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluatePersistenceAfterRestart(
+	ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag,
+) baserubrics.RubricItem {
+	rubricItem := newRubricItem("PersistenceAfterRestart", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -107,15 +117,8 @@ func EvaluatePersistenceAfterRestart(ctx context.Context, program ProgramRunner,
 }
 
 // EvaluateNonexistentGet checks GET on a nonexistent key
-func EvaluateNonexistentGet(ctx context.Context, program ProgramRunner, _ RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "NonexistentGet",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateNonexistentGet(ctx context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("NonexistentGet", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -137,15 +140,8 @@ func EvaluateNonexistentGet(ctx context.Context, program ProgramRunner, _ RunBag
 const key1 = "key1"
 
 // EvaluateSetGet evaluates basic SET and GET functionality
-func EvaluateSetGet(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "SetGet",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateSetGet(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("SetGet", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -172,16 +168,8 @@ func EvaluateSetGet(ctx context.Context, program ProgramRunner, bag RunBag) Rubr
 	expected := bag[key1].(string) // Type assert to string
 	actual := strings.TrimSpace(out[0])
 
-	// Option 1: Check if output ends with expected value (handles "> UUID" case)
-	if strings.HasSuffix(actual, expected) {
-		return rubricItem("Successfully set and retrieved key-value pair", 5)
-	}
-
-	// Option 2: Remove leading non-alphanumeric characters and check
-	trimmed := strings.TrimLeftFunc(actual, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '-'
-	})
-	if trimmed == expected {
+	// Remove leading non-alphanumeric characters and check
+	if trimPromptChars(actual) == expected {
 		return rubricItem("Successfully set and retrieved key-value pair", 5)
 	}
 
@@ -190,15 +178,8 @@ func EvaluateSetGet(ctx context.Context, program ProgramRunner, bag RunBag) Rubr
 }
 
 // EvaluateOverwriteKey evaluates the SET and GET functionality for overwriting a key.
-func EvaluateOverwriteKey(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "OverwriteKey",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateOverwriteKey(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("OverwriteKey", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -229,23 +210,15 @@ func EvaluateOverwriteKey(ctx context.Context, program ProgramRunner, bag RunBag
 	expected := bag[key1].(string)
 	actual := strings.TrimSpace(out[0])
 
-	// Check if output ends with expected value (handles "> UUID" case)
-	if strings.HasSuffix(actual, expected) {
-		return rubricItem("Successfully overwrote key and retrieved new value", 5)
-	}
-
 	// Remove leading non-alphanumeric characters and check
-	trimmed := strings.TrimLeftFunc(actual, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '-'
-	})
-	if trimmed == expected {
+	if trimPromptChars(actual) == expected {
 		return rubricItem("Successfully overwrote key and retrieved new value", 5)
 	}
 
 	return rubricItem("GET did not return the expected value", 0)
 }
 
-func do(ctx context.Context, program ProgramRunner, cmd string) ([]string, error) {
+func do(ctx context.Context, program baserubrics.ProgramRunner, cmd string) ([]string, error) {
 	out, errOut, err := program.Do(cmd)
 	if err != nil {
 		return nil, err
@@ -258,15 +231,8 @@ func do(ctx context.Context, program ProgramRunner, cmd string) ([]string, error
 }
 
 // EvaluateDeleteExists checks DEL and EXISTS commands
-func EvaluateDeleteExists(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "DeleteExists",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateDeleteExists(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("DeleteExists", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -303,7 +269,7 @@ func EvaluateDeleteExists(ctx context.Context, program ProgramRunner, bag RunBag
 	return rubricItem("DEL and EXISTS work correctly", 5)
 }
 
-func checkExistsBeforeDel(ctx context.Context, program ProgramRunner, key string) string {
+func checkExistsBeforeDel(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("EXISTS %s", key))
 	if err != nil {
 		return fmt.Sprintf("EXISTS failed: %v", err)
@@ -314,7 +280,7 @@ func checkExistsBeforeDel(ctx context.Context, program ProgramRunner, key string
 	return ""
 }
 
-func checkDelOperation(ctx context.Context, program ProgramRunner, key string) string {
+func checkDelOperation(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("DEL %s", key))
 	if err != nil {
 		return fmt.Sprintf("DEL failed: %v", err)
@@ -325,7 +291,7 @@ func checkDelOperation(ctx context.Context, program ProgramRunner, key string) s
 	return ""
 }
 
-func checkExistsAfterDel(ctx context.Context, program ProgramRunner, key string) string {
+func checkExistsAfterDel(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("EXISTS %s", key))
 	if err != nil {
 		return fmt.Sprintf("EXISTS after DEL failed: %v", err)
@@ -336,7 +302,7 @@ func checkExistsAfterDel(ctx context.Context, program ProgramRunner, key string)
 	return ""
 }
 
-func checkGetAfterDel(ctx context.Context, program ProgramRunner, key string) string {
+func checkGetAfterDel(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
 		return fmt.Sprintf("GET after DEL failed: %v", err)
@@ -351,15 +317,8 @@ func checkGetAfterDel(ctx context.Context, program ProgramRunner, key string) st
 }
 
 // EvaluateMSetMGet checks MSET and MGET commands
-func EvaluateMSetMGet(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "MSetMGet",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateMSetMGet(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("MSetMGet", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -413,15 +372,8 @@ func EvaluateMSetMGet(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 }
 
 // EvaluateTTLBasic checks EXPIRE and TTL with lazy expiration
-func EvaluateTTLBasic(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "TTLBasic",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateTTLBasic(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("TTLBasic", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -461,7 +413,7 @@ func EvaluateTTLBasic(ctx context.Context, program ProgramRunner, bag RunBag) Ru
 	return rubricItem("EXPIRE and TTL work correctly with lazy expiration", 5)
 }
 
-func checkExpireOperation(ctx context.Context, program ProgramRunner, key string) string {
+func checkExpireOperation(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("EXPIRE %s 100", key))
 	if err != nil {
 		return fmt.Sprintf("EXPIRE failed: %v", err)
@@ -472,7 +424,7 @@ func checkExpireOperation(ctx context.Context, program ProgramRunner, key string
 	return ""
 }
 
-func checkGetBeforeExpiry(ctx context.Context, program ProgramRunner, key, value string) string {
+func checkGetBeforeExpiry(ctx context.Context, program baserubrics.ProgramRunner, key, value string) string {
 	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
 		return fmt.Sprintf("GET failed: %v", err)
@@ -483,7 +435,7 @@ func checkGetBeforeExpiry(ctx context.Context, program ProgramRunner, key, value
 	return ""
 }
 
-func checkGetAfterExpiry(ctx context.Context, program ProgramRunner, key string) string {
+func checkGetAfterExpiry(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf(getCommandFmt, key))
 	if err != nil {
 		return fmt.Sprintf("GET after expiry failed: %v", err)
@@ -497,7 +449,7 @@ func checkGetAfterExpiry(ctx context.Context, program ProgramRunner, key string)
 	return ""
 }
 
-func checkTTLAfterExpiry(ctx context.Context, program ProgramRunner, key string) string {
+func checkTTLAfterExpiry(ctx context.Context, program baserubrics.ProgramRunner, key string) string {
 	out, err := do(ctx, program, fmt.Sprintf("TTL %s", key))
 	if err != nil {
 		return fmt.Sprintf("TTL failed: %v", err)
@@ -509,15 +461,8 @@ func checkTTLAfterExpiry(ctx context.Context, program ProgramRunner, key string)
 }
 
 // EvaluateRange checks RANGE command with lexicographic ordering
-func EvaluateRange(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "Range",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("Range", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -539,34 +484,24 @@ func EvaluateRange(ctx context.Context, program ProgramRunner, bag RunBag) Rubri
 		return rubricItem(fmt.Sprintf("MSET failed: %v", err), 0)
 	}
 
-	// RANGE b d -> expect "b", "c", "d", "END"
-	out, err := do(ctx, program, "RANGE b d")
-	if err != nil {
-		return rubricItem(fmt.Sprintf("RANGE b d failed: %v", err), 0)
-	}
-	expected := []string{"b", "c", "d", "END"}
-	if !validateRangeOutput(out, expected) {
-		return rubricItem(fmt.Sprintf("RANGE b d returned wrong keys, expected %v, got %v", expected, out), 0)
-	}
-
-	// RANGE "" c -> expect "a", "b", "c", "END"
-	out, err = do(ctx, program, `RANGE "" c`)
-	if err != nil {
-		return rubricItem(fmt.Sprintf("RANGE \"\" c failed: %v", err), 0)
-	}
-	expected = []string{"a", "b", "c", "END"}
-	if !validateRangeOutput(out, expected) {
-		return rubricItem(fmt.Sprintf("RANGE \"\" c returned wrong keys, expected %v, got %v", expected, out), 0)
+	// Test multiple RANGE queries
+	rangeTests := []struct {
+		cmd      string
+		expected []string
+	}{
+		{"RANGE b d", []string{"b", "c", "d", "END"}},
+		{`RANGE "" c`, []string{"a", "b", "c", "END"}},
+		{`RANGE d ""`, []string{"d", "e", "END"}},
 	}
 
-	// RANGE d "" -> expect "d", "e", "END"
-	out, err = do(ctx, program, `RANGE d ""`)
-	if err != nil {
-		return rubricItem(fmt.Sprintf("RANGE d \"\" failed: %v", err), 0)
-	}
-	expected = []string{"d", "e", "END"}
-	if !validateRangeOutput(out, expected) {
-		return rubricItem(fmt.Sprintf("RANGE d \"\" returned wrong keys, expected %v, got %v", expected, out), 0)
+	for _, test := range rangeTests {
+		out, err := do(ctx, program, test.cmd)
+		if err != nil {
+			return rubricItem(fmt.Sprintf("%q failed: %v", test.cmd, err), 0)
+		}
+		if !validateRangeOutput(out, test.expected) {
+			return rubricItem(fmt.Sprintf("%q returned wrong keys, expected %v, got %v", test.cmd, test.expected, out), 0)
+		}
 	}
 
 	return rubricItem("RANGE works correctly with lexicographic ordering", 5)
@@ -578,9 +513,7 @@ func validateRangeOutput(output, expected []string) bool {
 	for _, line := range output {
 		trimmed := strings.TrimSpace(line)
 		// Remove prompt characters
-		trimmed = strings.TrimLeftFunc(trimmed, func(r rune) bool {
-			return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-		})
+		trimmed = trimPromptChars(trimmed)
 		if trimmed != "" {
 			filtered = append(filtered, trimmed)
 		}
@@ -599,15 +532,8 @@ func validateRangeOutput(output, expected []string) bool {
 }
 
 // EvaluateTransactions checks BEGIN/COMMIT/ABORT with persistence
-func EvaluateTransactions(ctx context.Context, program ProgramRunner, bag RunBag) RubricItem {
-	rubricItem := func(msg string, awarded float64) RubricItem {
-		return RubricItem{
-			Name:    "Transactions",
-			Note:    msg,
-			Awarded: awarded,
-			Points:  5,
-		}
-	}
+func EvaluateTransactions(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
+	rubricItem := newRubricItem("Transactions", 5)
 	if err := program.Run(); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
@@ -633,7 +559,7 @@ func EvaluateTransactions(ctx context.Context, program ProgramRunner, bag RunBag
 	return rubricItem("Transactions work correctly with read-your-writes, abort, and commit persistence", 5)
 }
 
-func testAbortTxn(ctx context.Context, program ProgramRunner, key, value string) (string, bool) {
+func testAbortTxn(ctx context.Context, program baserubrics.ProgramRunner, key, value string) (string, bool) {
 	if _, err := do(ctx, program, "BEGIN"); err != nil {
 		return fmt.Sprintf("BEGIN failed: %v", err), false
 	}
@@ -667,7 +593,7 @@ func testAbortTxn(ctx context.Context, program ProgramRunner, key, value string)
 	return "", true
 }
 
-func testCommitTxn(ctx context.Context, program ProgramRunner, key, value string) (string, bool) {
+func testCommitTxn(ctx context.Context, program baserubrics.ProgramRunner, key, value string) (string, bool) {
 	if _, err := do(ctx, program, "BEGIN"); err != nil {
 		return fmt.Sprintf("Second BEGIN failed: %v", err), false
 	}
