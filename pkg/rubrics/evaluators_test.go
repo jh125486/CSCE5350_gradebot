@@ -1713,8 +1713,8 @@ func getAfterAbortStillReturnsDoFunc() func(string) ([]string, []string, error) 
 // SETs are captured in order, and GET replies with the first SET's value on the first
 // call and empty afterwards, until the given override intercepts a specific command.
 func twoSetTwoGetDoFunc(override func(cmd string) ([]string, []string, error, bool)) func(string) ([]string, []string, error) {
-	var firstSetVal, secondSetVal string
-	getCount := 0
+	var firstSetVal string
+	setCount, getCount := 0, 0
 	return func(input string) ([]string, []string, error) {
 		tokens := strings.Fields(input)
 		if len(tokens) == 0 {
@@ -1723,15 +1723,15 @@ func twoSetTwoGetDoFunc(override func(cmd string) ([]string, []string, error, bo
 		if out, outErr, err, handled := override(tokens[0]); handled {
 			return out, outErr, err
 		}
-		if tokens[0] == cmdSET && len(tokens) > 2 {
-			if firstSetVal == "" {
-				firstSetVal = tokens[2]
-			} else if secondSetVal == "" {
-				secondSetVal = tokens[2]
+		switch tokens[0] {
+		case cmdSET:
+			if len(tokens) > 2 {
+				setCount++
+				if setCount == 1 {
+					firstSetVal = tokens[2]
+				}
 			}
-			return []string{""}, []string{}, nil
-		}
-		if tokens[0] == cmdGET {
+		case cmdGET:
 			getCount++
 			if getCount == 1 {
 				return []string{firstSetVal}, []string{}, nil
