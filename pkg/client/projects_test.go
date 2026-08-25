@@ -101,8 +101,12 @@ func (m *mockQualityServiceClient) EvaluateCodeQuality(_ context.Context, _ *con
 	}), nil
 }
 
+// None of the tests below call t.Parallel(): client.ExecuteProject's
+// underlying rubrics.Program.Run os.Chdir()s into WorkDir and restores the
+// prior cwd on return, which is process-global state -- running these
+// concurrently races on it (observed in CI as a spurious "failed to
+// determine working directory: getwd: no such file or directory").
 func TestExecuteProject1(t *testing.T) {
-	t.Parallel()
 	type args struct {
 		ctx context.Context
 		cfg *gbclient.Config
@@ -140,7 +144,6 @@ func TestExecuteProject1(t *testing.T) {
 }
 
 func TestExecuteProject2(t *testing.T) {
-	t.Parallel()
 	type args struct {
 		ctx context.Context
 		cfg *gbclient.Config
@@ -179,7 +182,6 @@ func TestExecuteProject2(t *testing.T) {
 
 func TestExecuteProject1_Integration(t *testing.T) {
 	// This test verifies the evaluators are called in the correct order
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
@@ -195,7 +197,6 @@ func TestExecuteProject1_Integration(t *testing.T) {
 
 func TestExecuteProject2_Integration(t *testing.T) {
 	// This test verifies the evaluators are called in the correct order
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
@@ -211,7 +212,6 @@ func TestExecuteProject2_Integration(t *testing.T) {
 
 func TestExecuteProject1WithUpload(t *testing.T) {
 	// Test with upload result configured
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),
@@ -227,7 +227,6 @@ func TestExecuteProject1WithUpload(t *testing.T) {
 
 func TestExecuteProject2WithUpload(t *testing.T) {
 	// Test with upload result configured
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),
@@ -243,7 +242,6 @@ func TestExecuteProject2WithUpload(t *testing.T) {
 
 func TestExecuteProject1WithUploadError(t *testing.T) {
 	// Test that upload errors are logged but don't fail execution
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),
@@ -260,7 +258,6 @@ func TestExecuteProject1WithUploadError(t *testing.T) {
 
 func TestExecuteProject2WithUploadError(t *testing.T) {
 	// Test that upload errors are logged but don't fail execution
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),
@@ -277,7 +274,6 @@ func TestExecuteProject2WithUploadError(t *testing.T) {
 
 func TestExecuteProject1WithQualityClient(t *testing.T) {
 	// Test the QualityClient code path
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),
@@ -293,7 +289,6 @@ func TestExecuteProject1WithQualityClient(t *testing.T) {
 
 func TestExecuteProject2WithQualityClient(t *testing.T) {
 	// Test the QualityClient code path
-	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		WorkDir:        gbclient.WorkDir(t.TempDir()),

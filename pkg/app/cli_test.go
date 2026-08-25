@@ -79,8 +79,11 @@ func TestWorkDirValidate(t *testing.T) {
 	}
 }
 
+// TestProject1CmdRun and TestProject2CmdRun don't call t.Parallel(): Run
+// goes through rubrics.Program.Run, which os.Chdir()s into WorkDir and
+// restores the prior cwd on return -- process-global state that races
+// across concurrent tests (see pkg/client/projects_test.go's identical note).
 func TestProject1CmdRun(t *testing.T) {
-	t.Parallel()
 	type args struct {
 		serverURL string
 		dir       string
@@ -138,7 +141,6 @@ func TestProject1CmdRun(t *testing.T) {
 }
 
 func TestProject2CmdRun(t *testing.T) {
-	t.Parallel()
 	type args struct {
 		serverURL string
 		dir       string
