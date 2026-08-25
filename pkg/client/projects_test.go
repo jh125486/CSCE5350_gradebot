@@ -29,6 +29,14 @@ func (m *mockCommandFactory) New(name string, arg ...string) baserubrics.Command
 	return &mockCommander{failStart: m.failStart}
 }
 
+// programBuilderWith adapts a CommandBuilder into the Config.ProgramBuilder
+// hook so tests can inject a fake process runner.
+func programBuilderWith(cb baserubrics.CommandBuilder) func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
+	return func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
+		return baserubrics.New(workDir, runCmd, baserubrics.WithCommandBuilder(cb)), nil
+	}
+}
+
 // mockCommander implements Commander but doesn't actually execute anything
 type mockCommander struct {
 	stdin     io.Reader
@@ -37,7 +45,8 @@ type mockCommander struct {
 	failStart bool
 }
 
-func (m *mockCommander) SetDir(dir string) {}
+func (m *mockCommander) SetDir(dir string)   {}
+func (m *mockCommander) SetEnv(env []string) {}
 func (m *mockCommander) SetStdin(stdin io.Reader) {
 	m.stdin = stdin
 }
@@ -108,9 +117,9 @@ func TestExecuteProject1(t *testing.T) {
 			args: args{
 				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: &gbclient.Config{
-					Dir:            gbclient.WorkDir(t.TempDir()),
+					WorkDir:        gbclient.WorkDir(t.TempDir()),
 					RunCmd:         echoTestCmd,
-					CommandFactory: &mockCommandFactory{},
+					ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 					Writer:         io.Discard,
 					Reader:         nil, // Will skip upload prompt
 				},
@@ -146,9 +155,9 @@ func TestExecuteProject2(t *testing.T) {
 			args: args{
 				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: &gbclient.Config{
-					Dir:            gbclient.WorkDir(t.TempDir()),
+					WorkDir:        gbclient.WorkDir(t.TempDir()),
 					RunCmd:         echoTestCmd,
-					CommandFactory: &mockCommandFactory{},
+					ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 					Writer:         io.Discard,
 					Reader:         nil, // Will skip upload prompt
 				},
@@ -174,9 +183,9 @@ func TestExecuteProject1_Integration(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(tempDir),
+		WorkDir:        gbclient.WorkDir(tempDir),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         nil,
 	}
@@ -190,9 +199,9 @@ func TestExecuteProject2_Integration(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(tempDir),
+		WorkDir:        gbclient.WorkDir(tempDir),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         nil,
 	}
@@ -205,9 +214,9 @@ func TestExecuteProject1WithUpload(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
 		RubricClient:   &mockRubricServiceClient{},
@@ -221,9 +230,9 @@ func TestExecuteProject2WithUpload(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
 		RubricClient:   &mockRubricServiceClient{},
@@ -237,9 +246,9 @@ func TestExecuteProject1WithUploadError(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
 		RubricClient:   &mockRubricServiceClient{uploadErr: errors.New("upload failed")},
@@ -254,9 +263,9 @@ func TestExecuteProject2WithUploadError(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
 		RubricClient:   &mockRubricServiceClient{uploadErr: errors.New("upload failed")},
@@ -271,9 +280,9 @@ func TestExecuteProject1WithQualityClient(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("n\n"),
 		QualityClient:  &mockQualityServiceClient{},
@@ -287,9 +296,9 @@ func TestExecuteProject2WithQualityClient(t *testing.T) {
 	t.Parallel()
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
-		Dir:            gbclient.WorkDir(t.TempDir()),
+		WorkDir:        gbclient.WorkDir(t.TempDir()),
 		RunCmd:         echoTestCmd,
-		CommandFactory: &mockCommandFactory{},
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("n\n"),
 		QualityClient:  &mockQualityServiceClient{},

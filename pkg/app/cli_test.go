@@ -16,7 +16,7 @@ import (
 	"github.com/jh125486/gradebot/pkg/rubrics"
 )
 
-// mockCommandFactory is a test mock for CommandFactory that immediately fails
+// mockCommandFactory is a test mock for CommandBuilder that immediately fails
 type mockCommandFactory struct{}
 
 func (m *mockCommandFactory) New(name string, arg ...string) rubrics.Commander {
@@ -27,6 +27,7 @@ func (m *mockCommandFactory) New(name string, arg ...string) rubrics.Commander {
 type mockCommander struct{}
 
 func (m *mockCommander) SetDir(dir string)          {} // no-op for test
+func (m *mockCommander) SetEnv(env []string)        {} // no-op for test
 func (m *mockCommander) SetStdin(stdin io.Reader)   {} // no-op for test
 func (m *mockCommander) SetStdout(stdout io.Writer) {} // no-op for test
 func (m *mockCommander) SetStderr(stderr io.Writer) {} // no-op for test
@@ -81,11 +82,10 @@ func TestWorkDirValidate(t *testing.T) {
 func TestProject1CmdRun(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		serverURL      string
-		dir            string
-		runCmd         string
-		client         *http.Client
-		commandFactory rubrics.CommandFactory
+		serverURL string
+		dir       string
+		runCmd    string
+		client    *http.Client
 	}
 	tests := []struct {
 		name    string
@@ -93,7 +93,11 @@ func TestProject1CmdRun(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "executes project 1 with mocked command factory",
+			// gradebot's ExecuteProject fails fast on the initial program.Run
+			// (see client.ExecuteProject), so a mock whose Start always fails
+			// now surfaces as a hard error instead of being swallowed into
+			// per-evaluator rubric notes.
+			name: "mocked command factory that fails to start propagates the error",
 			args: args{
 				serverURL: testServerURL,
 				dir:       t.TempDir(),
@@ -101,9 +105,8 @@ func TestProject1CmdRun(t *testing.T) {
 				client: &http.Client{
 					Timeout: 100 * time.Millisecond,
 				},
-				commandFactory: &mockCommandFactory{},
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
@@ -111,19 +114,21 @@ func TestProject1CmdRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := app.Project1Cmd{
 				CommonArgs: basecli.CommonArgs{
-					ServerURL:      tt.args.serverURL,
-					Dir:            baseclient.WorkDir(tt.args.dir),
-					RunCmd:         tt.args.runCmd,
-					Client:         tt.args.client,
-					Stdout:         new(bytes.Buffer),
-					CommandFactory: tt.args.commandFactory,
+					ServerURL: tt.args.serverURL,
+					WorkDir:   baseclient.WorkDir(tt.args.dir),
+					RunCmd:    tt.args.runCmd,
 				},
+			}
+			svc := &basecli.Service{
+				Client:         tt.args.client,
+				Stdout:         new(bytes.Buffer),
+				CommandBuilder: (&mockCommandFactory{}).New,
 			}
 
 			ctx, cancel := context.WithTimeout(contextlog.With(t.Context(), contextlog.DiscardLogger()), 100*time.Millisecond)
 			defer cancel()
 
-			err := p.Run(basecli.Context{Context: ctx})
+			err := p.Run(basecli.Context{Context: ctx}, svc)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Project1Cmd.Run() error = %v, wantErr %v", err, tt.wantErr)
@@ -135,12 +140,11 @@ func TestProject1CmdRun(t *testing.T) {
 func TestProject2CmdRun(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		serverURL      string
-		dir            string
-		runCmd         string
-		client         *http.Client
-		stdin          io.Reader
-		commandFactory rubrics.CommandFactory
+		serverURL string
+		dir       string
+		runCmd    string
+		client    *http.Client
+		stdin     io.Reader
 	}
 	tests := []struct {
 		name    string
@@ -148,28 +152,29 @@ func TestProject2CmdRun(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "executes project 2 with mocked command factory and stdin",
+			// See TestProject1CmdRun: gradebot's ExecuteProject now fails
+			// fast on the initial program.Run, so the always-failing mock
+			// Start propagates as a hard error regardless of stdin.
+			name: "mocked command factory that fails to start propagates the error with stdin",
 			args: args{
-				serverURL:      testServerURL,
-				dir:            t.TempDir(),
-				runCmd:         testRunCmd,
-				client:         &http.Client{Timeout: 100 * time.Millisecond},
-				stdin:          strings.NewReader(testStdinNegative),
-				commandFactory: &mockCommandFactory{},
+				serverURL: testServerURL,
+				dir:       t.TempDir(),
+				runCmd:    testRunCmd,
+				client:    &http.Client{Timeout: 100 * time.Millisecond},
+				stdin:     strings.NewReader(testStdinNegative),
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
-			name: "executes project 2 with nil stdin",
+			name: "mocked command factory that fails to start propagates the error with nil stdin",
 			args: args{
-				serverURL:      testServerURL,
-				dir:            t.TempDir(),
-				runCmd:         testRunCmd,
-				client:         &http.Client{Timeout: 100 * time.Millisecond},
-				stdin:          nil,
-				commandFactory: &mockCommandFactory{},
+				serverURL: testServerURL,
+				dir:       t.TempDir(),
+				runCmd:    testRunCmd,
+				client:    &http.Client{Timeout: 100 * time.Millisecond},
+				stdin:     nil,
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 
@@ -177,20 +182,22 @@ func TestProject2CmdRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := app.Project2Cmd{
 				CommonArgs: basecli.CommonArgs{
-					ServerURL:      tt.args.serverURL,
-					Dir:            baseclient.WorkDir(tt.args.dir),
-					RunCmd:         tt.args.runCmd,
-					Client:         tt.args.client,
-					Stdout:         new(bytes.Buffer),
-					Stdin:          tt.args.stdin,
-					CommandFactory: tt.args.commandFactory,
+					ServerURL: tt.args.serverURL,
+					WorkDir:   baseclient.WorkDir(tt.args.dir),
+					RunCmd:    tt.args.runCmd,
 				},
+			}
+			svc := &basecli.Service{
+				Client:         tt.args.client,
+				Stdout:         new(bytes.Buffer),
+				Stdin:          tt.args.stdin,
+				CommandBuilder: (&mockCommandFactory{}).New,
 			}
 
 			ctx, cancel := context.WithTimeout(contextlog.With(t.Context(), contextlog.DiscardLogger()), 100*time.Millisecond)
 			defer cancel()
 
-			err := p.Run(basecli.Context{Context: ctx})
+			err := p.Run(basecli.Context{Context: ctx}, svc)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Project2Cmd.Run() error = %v, wantErr %v", err, tt.wantErr)

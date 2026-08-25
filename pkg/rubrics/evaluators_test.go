@@ -82,7 +82,7 @@ func newKVStoreMock(t *testing.T) *kvStoreMock {
 }
 
 func (m *kvStoreMock) Path() string { return m.tempDir }
-func (m *kvStoreMock) Run(args ...string) error {
+func (m *kvStoreMock) Run(_ context.Context, args ...string) error {
 	m.runCallCount++
 	if m.runCallCount == 1 && m.firstRunErr != nil {
 		return m.firstRunErr
@@ -469,7 +469,7 @@ type simpleMockProgram struct {
 }
 
 func (s *simpleMockProgram) Path() string             { return "." }
-func (s *simpleMockProgram) Run(args ...string) error { return s.runErr }
+func (s *simpleMockProgram) Run(_ context.Context, args ...string) error { return s.runErr }
 func (s *simpleMockProgram) Do(in string) (stdout, stderr []string, err error) {
 	if len(s.responses) > 0 {
 		r := s.responses[0]
@@ -844,7 +844,7 @@ func (m *MockProgramRunner) Path() string {
 	return "."
 }
 
-func (m *MockProgramRunner) Run(args ...string) error {
+func (m *MockProgramRunner) Run(_ context.Context, args ...string) error {
 	return nil
 }
 
