@@ -25,6 +25,8 @@ const (
 	// restartLoadDelay is the time to wait for a program to load persisted data after restart.
 	restartLoadDelay = 100 * time.Millisecond
 
+	rangeEndMarker = "END"
+
 	executionFailedFmt = "Execution failed: %v"
 	setCommandFmt      = "SET %s %v"
 	setCommandFmt2     = "SET %s %s"
@@ -489,9 +491,9 @@ func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag b
 		cmd      string
 		expected []string
 	}{
-		{"RANGE b d", []string{"b", "c", "d", "END"}},
-		{`RANGE "" c`, []string{"a", "b", "c", "END"}},
-		{`RANGE d ""`, []string{"d", "e", "END"}},
+		{"RANGE b d", []string{"b", "c", "d", rangeEndMarker}},
+		{`RANGE "" c`, []string{"a", "b", "c", rangeEndMarker}},
+		{`RANGE d ""`, []string{"d", "e", rangeEndMarker}},
 	}
 
 	for _, test := range rangeTests {
