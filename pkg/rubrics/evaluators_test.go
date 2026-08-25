@@ -29,6 +29,28 @@ const (
 	cmdBEGIN  = "BEGIN"
 	cmdCOMMIT = "COMMIT"
 	cmdABORT  = "ABORT"
+
+	testEndMarker = "END"
+
+	testNameSuccess     = "Success"
+	testNameRunFails    = "RunFails"
+	testNameRunFailsMsg = "Run fails"
+	testNameDoFails     = "DoFails"
+
+	noteExecutionFailed     = "Execution failed"
+	noteSetFailed           = "SET failed"
+	noteMsetFailed          = "MSET failed"
+	noteGetNoOutput         = "GET did not return any output"
+	noteSuccessSetRetrieved = "Successfully set and retrieved"
+	noteSuccessOverwroteKey = "Successfully overwrote key"
+	noteCorrectly           = "correctly"
+	noteReturnedWrongValue  = "returned wrong value"
+	noteShouldReturnNil     = "should return nil"
+	noteWrongValue          = "wrong value"
+
+	valWrong      = "wrong"
+	valVal2       = "val2"
+	valWrongValue = "wrongvalue"
 )
 
 // kvStoreMock simulates a persistent key-value store and file creation for rubric tests
@@ -116,85 +138,113 @@ func (m *kvStoreMock) Do(input string) (stdout, stderr []string, err error) {
 	cmd := tokens[0]
 	switch cmd {
 	case cmdSET:
-		if len(tokens) >= 3 {
-			m.store[tokens[1]] = strings.Join(tokens[2:], " ")
-			// Simulate file creation - create the actual file for the test
-			if m.fileCreated {
-				// Create the data.db file in the temp directory for the stat check
-				dbPath := filepath.Join(m.tempDir, rubrics.DataFileName)
-				os.MkdirAll(m.tempDir, 0o755)
-				f, createErr := os.Create(dbPath)
-				if createErr == nil {
-					f.Close()
-				}
-			}
-		}
-		return []string{""}, []string{}, nil
+		return m.doSET(tokens)
 	case cmdGET:
-		if m.returnEmptyOnGet {
-			return []string{}, []string{}, nil
-		}
-		if m.returnWrongOnGet {
-			return []string{"wrong-value-returned"}, []string{}, nil
-		}
-		if len(tokens) >= 2 {
-			val := m.store[tokens[1]]
-			return []string{val}, []string{}, nil
-		}
-		return []string{""}, []string{}, nil
+		return m.doGET(tokens)
 	case cmdDEL:
-		if len(tokens) >= 2 {
-			if _, exists := m.store[tokens[1]]; exists {
-				delete(m.store, tokens[1])
-				return []string{"1"}, []string{}, nil
-			}
-			return []string{"0"}, []string{}, nil
-		}
-		return []string{"0"}, []string{}, nil
+		return m.doDEL(tokens)
 	case cmdEXISTS:
-		if len(tokens) >= 2 {
-			if _, exists := m.store[tokens[1]]; exists {
-				return []string{"1"}, []string{}, nil
-			}
-			return []string{"0"}, []string{}, nil
-		}
-		return []string{"0"}, []string{}, nil
+		return m.doEXISTS(tokens)
 	case cmdMSET:
-		// MSET key1 val1 key2 val2 ...
-		for i := 1; i < len(tokens)-1; i += 2 {
-			if i+1 < len(tokens) {
-				m.store[tokens[i]] = tokens[i+1]
-			}
-		}
-		return []string{""}, []string{}, nil
+		return m.doMSET(tokens)
 	case cmdMGET:
-		// MGET key1 key2 key3 ... -> return values on separate lines
-		var results []string
-		for i := 1; i < len(tokens); i++ {
-			val, exists := m.store[tokens[i]]
-			if exists && val != "" {
-				results = append(results, val)
-			} else {
-				results = append(results, "")
-			}
-		}
-		return results, []string{}, nil
+		return m.doMGET(tokens)
 	case cmdEXPIRE:
 		// EXPIRE key seconds -> return 1
 		return []string{"1"}, []string{}, nil
 	case cmdRANGE:
-		// RANGE startKey endKey -> return key-value pairs
-		var results []string
-		// For simplicity, just return stored keys in order
-		for k, v := range m.store {
-			results = append(results, k+" "+v)
-		}
-		return results, []string{}, nil
+		return m.doRANGE()
 	case cmdBEGIN, cmdCOMMIT, cmdABORT:
 		return []string{""}, []string{}, nil
 	default:
 		return []string{""}, []string{}, nil
 	}
+}
+
+func (m *kvStoreMock) doSET(tokens []string) (stdout, stderr []string, err error) {
+	if len(tokens) >= 3 {
+		m.store[tokens[1]] = strings.Join(tokens[2:], " ")
+		// Simulate file creation - create the actual file for the test
+		if m.fileCreated {
+			// Create the data.db file in the temp directory for the stat check
+			dbPath := filepath.Join(m.tempDir, rubrics.DataFileName)
+			os.MkdirAll(m.tempDir, 0o755)
+			f, createErr := os.Create(dbPath)
+			if createErr == nil {
+				f.Close()
+			}
+		}
+	}
+	return []string{""}, []string{}, nil
+}
+
+func (m *kvStoreMock) doGET(tokens []string) (stdout, stderr []string, err error) {
+	if m.returnEmptyOnGet {
+		return []string{}, []string{}, nil
+	}
+	if m.returnWrongOnGet {
+		return []string{"wrong-value-returned"}, []string{}, nil
+	}
+	if len(tokens) >= 2 {
+		val := m.store[tokens[1]]
+		return []string{val}, []string{}, nil
+	}
+	return []string{""}, []string{}, nil
+}
+
+func (m *kvStoreMock) doDEL(tokens []string) (stdout, stderr []string, err error) {
+	if len(tokens) >= 2 {
+		if _, exists := m.store[tokens[1]]; exists {
+			delete(m.store, tokens[1])
+			return []string{"1"}, []string{}, nil
+		}
+		return []string{"0"}, []string{}, nil
+	}
+	return []string{"0"}, []string{}, nil
+}
+
+func (m *kvStoreMock) doEXISTS(tokens []string) (stdout, stderr []string, err error) {
+	if len(tokens) >= 2 {
+		if _, exists := m.store[tokens[1]]; exists {
+			return []string{"1"}, []string{}, nil
+		}
+		return []string{"0"}, []string{}, nil
+	}
+	return []string{"0"}, []string{}, nil
+}
+
+func (m *kvStoreMock) doMSET(tokens []string) (stdout, stderr []string, err error) {
+	// MSET key1 val1 key2 val2 ...
+	for i := 1; i < len(tokens)-1; i += 2 {
+		if i+1 < len(tokens) {
+			m.store[tokens[i]] = tokens[i+1]
+		}
+	}
+	return []string{""}, []string{}, nil
+}
+
+func (m *kvStoreMock) doMGET(tokens []string) (stdout, stderr []string, err error) {
+	// MGET key1 key2 key3 ... -> return values on separate lines
+	var results []string
+	for i := 1; i < len(tokens); i++ {
+		val, exists := m.store[tokens[i]]
+		if exists && val != "" {
+			results = append(results, val)
+		} else {
+			results = append(results, "")
+		}
+	}
+	return results, []string{}, nil
+}
+
+func (m *kvStoreMock) doRANGE() (stdout, stderr []string, err error) {
+	// RANGE startKey endKey -> return key-value pairs
+	results := make([]string, 0, len(m.store))
+	// For simplicity, just return stored keys in order
+	for k, v := range m.store {
+		results = append(results, k+" "+v)
+	}
+	return results, []string{}, nil
 }
 
 func TestEvaluateDataFileCreated(t *testing.T) {
@@ -205,7 +255,7 @@ func TestEvaluateDataFileCreated(t *testing.T) {
 		wantNoteSubstr string
 	}{
 		{
-			name: "Success",
+			name: testNameSuccess,
 			setupMock: func(m *kvStoreMock) {
 				// Default mock behavior creates file
 			},
@@ -213,21 +263,21 @@ func TestEvaluateDataFileCreated(t *testing.T) {
 			wantNoteSubstr: rubrics.DataFileName + " file created",
 		},
 		{
-			name: "RunFails",
+			name: testNameRunFails,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "DoFails",
+			name: testNameDoFails,
 			setupMock: func(m *kvStoreMock) {
 				m.doErr = errors.New("do failed")
 				m.failOnSecondDo = false
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "SET failed",
+			wantNoteSubstr: noteSetFailed,
 		},
 		{
 			name: "StatFails",
@@ -269,7 +319,7 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 		wantNoteSubstr string
 	}{
 		{
-			name: "Success",
+			name: testNameSuccess,
 			setupMock: func(m *kvStoreMock) {
 				// Default mock behavior
 			},
@@ -277,20 +327,20 @@ func TestEvaluatePersistenceAfterRestart(t *testing.T) {
 			wantNoteSubstr: "correct value",
 		},
 		{
-			name: "RunFails",
+			name: testNameRunFails,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "DoFails",
+			name: testNameDoFails,
 			setupMock: func(m *kvStoreMock) {
 				m.doErr = errors.New("do failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "SET failed",
+			wantNoteSubstr: noteSetFailed,
 		},
 		{
 			name: "KillFails",
@@ -357,7 +407,7 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 		wantNoteSubstr string
 	}{
 		{
-			name: "Success",
+			name: testNameSuccess,
 			setupMock: func(m *kvStoreMock) {
 				// Default mock behavior
 			},
@@ -365,20 +415,20 @@ func TestEvaluateNonexistentGet(t *testing.T) {
 			wantNoteSubstr: "Correctly handled",
 		},
 		{
-			name: "RunFails",
+			name: testNameRunFails,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "DoFails",
+			name: testNameDoFails,
 			setupMock: func(m *kvStoreMock) {
 				m.doErr = errors.New("do failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
 			name: "ReturnsLongUnexpectedOutput",
@@ -448,7 +498,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 		expectBagKey   require.ValueAssertionFunc
 	}{
 		{
-			name: "Success",
+			name: testNameSuccess,
 			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
 					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil }, // SET
@@ -457,15 +507,15 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 			},
 			runErr:         nil,
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
-			name:           "RunFails",
+			name:           testNameRunFails,
 			responses:      func(bag baserubrics.RunBag) []resp { return nil },
 			runErr:         errors.New("run failed"),
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 			expectBagKey:   require.Empty,
 		},
 		{
@@ -476,7 +526,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -484,7 +534,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 			responses: func(bag baserubrics.RunBag) []resp {
 				return []resp{
 					func(rb baserubrics.RunBag) (string, string, error) { return "", "", nil },
-					func(rb baserubrics.RunBag) (string, string, error) { return "wrong", "", nil },
+					func(rb baserubrics.RunBag) (string, string, error) { return valWrong, "", nil },
 				}
 			},
 			wantPoints:     0,
@@ -500,7 +550,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -512,7 +562,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -524,7 +574,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -536,7 +586,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "GET did not return any output",
+			wantNoteSubstr: noteGetNoOutput,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -548,7 +598,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -560,7 +610,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "GET did not return any output",
+			wantNoteSubstr: noteGetNoOutput,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -572,7 +622,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -584,7 +634,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -596,7 +646,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 		{
@@ -627,7 +677,7 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 				}
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "Successfully set and retrieved",
+			wantNoteSubstr: noteSuccessSetRetrieved,
 			expectBagKey:   require.NotEmpty,
 		},
 	}
@@ -651,123 +701,31 @@ func TestEvaluateSetGet_Table(t *testing.T) {
 }
 
 // TestEvaluateOverwriteKey tests the EvaluateOverwriteKey function.
-func TestEvaluateOverwriteKey(t *testing.T) {
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
-		{
-			name: "Success",
-			setupMock: func(m *kvStoreMock) {
-				// Default mock behavior
-			},
-			wantPoints:     5,
-			wantNoteSubstr: "Successfully overwrote key",
-		},
-		{
-			name: "RunFails",
-			setupMock: func(m *kvStoreMock) {
-				m.firstRunErr = errors.New("run failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
-		},
-		{
-			name: "DoFails",
-			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("do failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
-		},
-		{
-			name: "SecondSetFails",
-			setupMock: func(m *kvStoreMock) {
-				m.failOnSecondDo = true // Second SET (do call) will fail
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
-		},
-		{
-			name: "GetReturnsEmptyOutput",
-			setupMock: func(m *kvStoreMock) {
-				m.returnEmptyOnGet = true
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET did not return any output",
-		},
-		{
-			name: "GetReturnsActuallyWrongValue",
-			setupMock: func(m *kvStoreMock) {
-				m.returnWrongOnGet = true
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET did not return the expected value",
-		},
-		{
-			name: "GetWithPromptCharacters",
-			setupMock: func(m *kvStoreMock) {
-				// Mock will return value with prompt, testing the HasSuffix path
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						val := m.store[tokens[1]]
-						return []string{"> " + val}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) >= 3 {
-						m.store[tokens[1]] = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     5,
-			wantNoteSubstr: "Successfully overwrote key",
-		},
-		{
-			name: "GetWithLeadingSymbols",
-			setupMock: func(m *kvStoreMock) {
-				// Mock will return value with leading symbols, testing TrimLeftFunc path
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						val := m.store[tokens[1]]
-						return []string{">>> " + val}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) >= 3 {
-						m.store[tokens[1]] = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     5,
-			wantNoteSubstr: "Successfully overwrote key",
-		},
-		{
-			name: "GetWithLeadingSymbolsOnlyTrimLeftWorks",
-			setupMock: func(m *kvStoreMock) {
-				// Return with leading symbols and space so HasSuffix fails but TrimLeftFunc works
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						val := m.store[tokens[1]]
-						return []string{" >>>" + val}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) >= 3 {
-						m.store[tokens[1]] = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     5,
-			wantNoteSubstr: "Successfully overwrote key",
-		},
+// prefixedGetDoFunc returns a customDoFunc that echoes GET results with the given
+// prefix (simulating a shell prompt) and otherwise behaves like a normal SET/GET.
+func prefixedGetDoFunc(m *kvStoreMock, prefix string) func(string) ([]string, []string, error) {
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			val := m.store[tokens[1]]
+			return []string{prefix + val}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) >= 3 {
+			m.store[tokens[1]] = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
 	}
+}
 
+func runOverwriteKeyCases(t *testing.T, tests []struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+},
+) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
@@ -783,6 +741,101 @@ func TestEvaluateOverwriteKey(t *testing.T) {
 			assert.Contains(t, result.Note, tt.wantNoteSubstr)
 		})
 	}
+}
+
+func TestEvaluateOverwriteKey(t *testing.T) {
+	runOverwriteKeyCases(t, []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: testNameSuccess,
+			setupMock: func(m *kvStoreMock) {
+				// Default mock behavior
+			},
+			wantPoints:     5,
+			wantNoteSubstr: noteSuccessOverwroteKey,
+		},
+		{
+			name: testNameRunFails,
+			setupMock: func(m *kvStoreMock) {
+				m.firstRunErr = errors.New("run failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteExecutionFailed,
+		},
+		{
+			name: testNameDoFails,
+			setupMock: func(m *kvStoreMock) {
+				m.doErr = errors.New("do failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteExecutionFailed,
+		},
+		{
+			name: "SecondSetFails",
+			setupMock: func(m *kvStoreMock) {
+				m.failOnSecondDo = true // Second SET (do call) will fail
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteExecutionFailed,
+		},
+		{
+			name: "GetReturnsEmptyOutput",
+			setupMock: func(m *kvStoreMock) {
+				m.returnEmptyOnGet = true
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteGetNoOutput,
+		},
+		{
+			name: "GetReturnsActuallyWrongValue",
+			setupMock: func(m *kvStoreMock) {
+				m.returnWrongOnGet = true
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET did not return the expected value",
+		},
+	})
+}
+
+func TestEvaluateOverwriteKey_PromptHandling(t *testing.T) {
+	runOverwriteKeyCases(t, []struct {
+		name           string
+		setupMock      func(*kvStoreMock)
+		wantPoints     float64
+		wantNoteSubstr string
+	}{
+		{
+			name: "GetWithPromptCharacters",
+			setupMock: func(m *kvStoreMock) {
+				// Mock will return value with prompt, testing the HasSuffix path
+				m.customDoFunc = prefixedGetDoFunc(m, "> ")
+			},
+			wantPoints:     5,
+			wantNoteSubstr: noteSuccessOverwroteKey,
+		},
+		{
+			name: "GetWithLeadingSymbols",
+			setupMock: func(m *kvStoreMock) {
+				// Mock will return value with leading symbols, testing TrimLeftFunc path
+				m.customDoFunc = prefixedGetDoFunc(m, ">>> ")
+			},
+			wantPoints:     5,
+			wantNoteSubstr: noteSuccessOverwroteKey,
+		},
+		{
+			name: "GetWithLeadingSymbolsOnlyTrimLeftWorks",
+			setupMock: func(m *kvStoreMock) {
+				// Return with leading symbols and space so HasSuffix fails but TrimLeftFunc works
+				m.customDoFunc = prefixedGetDoFunc(m, " >>>")
+			},
+			wantPoints:     5,
+			wantNoteSubstr: noteSuccessOverwroteKey,
+		},
+	})
 }
 
 type MockProgramRunner struct{}
@@ -859,128 +912,86 @@ func TestReset(t *testing.T) {
 }
 
 // TestEvaluateDeleteExists_Detailed provides comprehensive coverage
-func TestEvaluateDeleteExists_Detailed(t *testing.T) {
-	t.Parallel()
-
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
-		{
-			name: "Success",
-			setupMock: func(m *kvStoreMock) {
-				// Default mock handles all commands correctly
-			},
-			wantPoints:     5,
-			wantNoteSubstr: "correctly",
-		},
-		{
-			name: "Run fails",
-			setupMock: func(m *kvStoreMock) {
-				m.firstRunErr = errors.New("run failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
-		},
-		{
-			name: "SET fails",
-			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("set failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "SET failed",
-		},
-		{
-			name: "First EXISTS returns wrong value",
-			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdEXISTS {
-						return []string{"0"}, []string{}, nil // Wrong: should be "1"
-					}
-					if len(tokens) > 0 && tokens[0] == cmdSET {
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "EXISTS returned wrong value",
-		},
-		{
-			name: "DEL returns wrong value",
-			setupMock: func(m *kvStoreMock) {
-				callCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdDEL {
-						return []string{"0"}, []string{}, nil // Wrong: should be "1"
-					}
-					if len(tokens) > 0 && tokens[0] == cmdEXISTS {
-						callCount++
-						if callCount == 1 {
-							return []string{"1"}, []string{}, nil
-						}
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "DEL returned wrong value",
-		},
-		{
-			name: "EXISTS after DEL returns wrong value",
-			setupMock: func(m *kvStoreMock) {
-				callCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "EXISTS" {
-						callCount++
-						if callCount == 2 {
-							return []string{"1"}, []string{}, nil // Wrong: should be "0"
-						}
-						return []string{"1"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "DEL" {
-						return []string{"1"}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "EXISTS after DEL returned wrong value",
-		},
-		{
-			name: "GET after DEL returns non-nil value",
-			setupMock: func(m *kvStoreMock) {
-				callCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						return []string{"some-value"}, []string{}, nil // Wrong: should be empty
-					}
-					if len(tokens) > 0 && tokens[0] == cmdEXISTS {
-						callCount++
-						if callCount == 1 {
-							return []string{"1"}, []string{}, nil
-						}
-						return []string{"0"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdDEL {
-						return []string{"1"}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET after DEL should return nil",
-		},
+// wrongExistsDoFunc simulates a program whose first EXISTS reply is wrong.
+func wrongExistsDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdEXISTS {
+		return []string{"0"}, []string{}, nil // Wrong: should be "1"
 	}
+	if len(tokens) > 0 && tokens[0] == cmdSET {
+		return []string{""}, []string{}, nil
+	}
+	return []string{""}, []string{}, nil
+}
 
+// wrongDelDoFunc simulates a program whose DEL reply is wrong.
+func wrongDelDoFunc() func(string) ([]string, []string, error) {
+	callCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdDEL {
+			return []string{"0"}, []string{}, nil // Wrong: should be "1"
+		}
+		if len(tokens) > 0 && tokens[0] == cmdEXISTS {
+			callCount++
+			if callCount == 1 {
+				return []string{"1"}, []string{}, nil
+			}
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+// wrongExistsAfterDelDoFunc simulates EXISTS still returning true after a DEL.
+func wrongExistsAfterDelDoFunc() func(string) ([]string, []string, error) {
+	callCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdEXISTS {
+			callCount++
+			if callCount == 2 {
+				return []string{"1"}, []string{}, nil // Wrong: should be "0"
+			}
+			return []string{"1"}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdDEL {
+			return []string{"1"}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+// nonNilGetAfterDelDoFunc simulates GET still returning a value after a DEL.
+func nonNilGetAfterDelDoFunc() func(string) ([]string, []string, error) {
+	callCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			return []string{"some-value"}, []string{}, nil // Wrong: should be empty
+		}
+		if len(tokens) > 0 && tokens[0] == cmdEXISTS {
+			callCount++
+			if callCount == 1 {
+				return []string{"1"}, []string{}, nil
+			}
+			return []string{"0"}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdDEL {
+			return []string{"1"}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+type deleteExistsCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runDeleteExistsCases(t *testing.T, ctx context.Context, tests []deleteExistsCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bag := make(baserubrics.RunBag)
@@ -995,162 +1006,154 @@ func TestEvaluateDeleteExists_Detailed(t *testing.T) {
 	}
 }
 
-// TestEvaluateMSetMGet_Detailed provides comprehensive coverage
-func TestEvaluateMSetMGet_Detailed(t *testing.T) {
+func TestEvaluateDeleteExists_Detailed(t *testing.T) {
 	t.Parallel()
 
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
+	runDeleteExistsCases(t, ctx, []deleteExistsCase{
 		{
-			name: "Success",
+			name: testNameSuccess,
 			setupMock: func(m *kvStoreMock) {
-				// Default mock handles MSET/MGET correctly
+				// Default mock handles all commands correctly
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "correctly",
+			wantNoteSubstr: noteCorrectly,
 		},
 		{
-			name: "Run fails",
+			name: testNameRunFailsMsg,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "MSET fails",
+			name: "SET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("mset failed")
+				m.doErr = errors.New("set failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "MSET failed",
+			wantNoteSubstr: noteSetFailed,
 		},
-		{
-			name: "MGET returns too few lines",
-			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdMGET {
-						return []string{"val1", "val2"}, []string{}, nil // Only 2 instead of 3
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "MGET returned too few lines",
-		},
-		{
-			name: "MGET first value wrong",
-			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdMGET {
-						// Return wrong values that won't match the UUIDs
-						return []string{"wrong1", "wrong2", ""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "returned wrong value",
-		},
-		{
-			name: "MGET second value wrong",
-			setupMock: func(m *kvStoreMock) {
-				var capturedKeys []string
-				var capturedVals []string
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "MSET" {
-						// Capture keys and values from MSET
-						for i := 1; i < len(tokens)-1; i += 2 {
-							if i+1 < len(tokens) {
-								capturedKeys = append(capturedKeys, tokens[i])
-								capturedVals = append(capturedVals, tokens[i+1])
-							}
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "MGET" {
-						// MGET queries: keyB, keyA, keyZ
-						// Return correct value for keyB, wrong for keyA
-						var results []string
-						for i := 1; i < len(tokens); i++ {
-							found := false
-							for j, k := range capturedKeys {
-								if k == tokens[i] {
-									if i == 2 { // keyA is second position
-										results = append(results, "WRONG-VALUE")
-									} else {
-										results = append(results, capturedVals[j])
-									}
-									found = true
-									break
-								}
-							}
-							if !found {
-								results = append(results, "")
-							}
-						}
-						return results, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "returned wrong value",
-		},
-		{
-			name: "MGET third value not nil",
-			setupMock: func(m *kvStoreMock) {
-				var capturedKeys []string
-				var capturedVals []string
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "MSET" {
-						// Capture keys and values from MSET
-						for i := 1; i < len(tokens)-1; i += 2 {
-							if i+1 < len(tokens) {
-								capturedKeys = append(capturedKeys, tokens[i])
-								capturedVals = append(capturedVals, tokens[i+1])
-							}
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "MGET" {
-						// Return values for keys requested in MGET
-						// MGET queries: keyB, keyA, keyZ (where keyZ doesn't exist)
-						var results []string
-						for i := 1; i < len(tokens); i++ {
-							found := false
-							for j, k := range capturedKeys {
-								if k == tokens[i] {
-									results = append(results, capturedVals[j])
-									found = true
-									break
-								}
-							}
-							if !found {
-								// This is keyZ - return a value instead of empty/nil
-								results = append(results, "WRONG-VALUE")
-							}
-						}
-						return results, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
-		},
-	}
+	})
+}
 
+func TestEvaluateDeleteExists_WrongValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runDeleteExistsCases(t, ctx, []deleteExistsCase{
+		{
+			name: "First EXISTS returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongExistsDoFunc
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXISTS returned wrong value",
+		},
+		{
+			name: "DEL returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongDelDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "DEL returned wrong value",
+		},
+		{
+			name: "EXISTS after DEL returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongExistsAfterDelDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXISTS after DEL returned wrong value",
+		},
+		{
+			name: "GET after DEL returns non-nil value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = nonNilGetAfterDelDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after DEL should return nil",
+		},
+	})
+}
+
+// TestEvaluateMSetMGet_Detailed provides comprehensive coverage
+func tooFewLinesMGetDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdMGET {
+		return []string{"val1", valVal2}, []string{}, nil // Only 2 instead of 3
+	}
+	return []string{""}, []string{}, nil
+}
+
+func firstValueWrongMGetDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdMGET {
+		// Return wrong values that won't match the UUIDs
+		return []string{"wrong1", "wrong2", ""}, []string{}, nil
+	}
+	return []string{""}, []string{}, nil
+}
+
+// captureMSetThenMGet returns a customDoFunc that records the keys/values written by
+// MSET, then serves MGET queries by looking them back up, substituting resultForMissing
+// for any key not found by MSET and calling wrongValueAt to decide whether a given
+// (1-based token) position should return a deliberately wrong value instead.
+func captureMSetThenMGet(resultForMissing string, wrongValueAt func(tokenPos int) bool) func(string) ([]string, []string, error) {
+	var capturedKeys, capturedVals []string
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) == 0 {
+			return []string{""}, []string{}, nil
+		}
+		switch tokens[0] {
+		case cmdMSET:
+			for i := 1; i < len(tokens)-1; i += 2 {
+				if i+1 < len(tokens) {
+					capturedKeys = append(capturedKeys, tokens[i])
+					capturedVals = append(capturedVals, tokens[i+1])
+				}
+			}
+			return []string{""}, []string{}, nil
+		case cmdMGET:
+			var results []string
+			for i := 1; i < len(tokens); i++ {
+				results = append(results, mgetLookup(tokens[i], capturedKeys, capturedVals, resultForMissing, wrongValueAt(i)))
+			}
+			return results, []string{}, nil
+		default:
+			return []string{""}, []string{}, nil
+		}
+	}
+}
+
+// mgetLookup finds key's value among captured MSET writes, returning wrongValue instead
+// when forceWrong is set, or resultForMissing when the key was never set.
+func mgetLookup(key string, capturedKeys, capturedVals []string, resultForMissing string, forceWrong bool) string {
+	for j, k := range capturedKeys {
+		if k != key {
+			continue
+		}
+		if forceWrong {
+			return "WRONG-VALUE"
+		}
+		return capturedVals[j]
+	}
+	return resultForMissing
+}
+
+type msetMGetCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runMSetMGetCases(t *testing.T, ctx context.Context, tests []msetMGetCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bag := make(baserubrics.RunBag)
@@ -1165,149 +1168,185 @@ func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 	}
 }
 
-// TestEvaluateTTLBasic_Detailed provides comprehensive coverage
-func TestEvaluateTTLBasic_Detailed(t *testing.T) {
+func TestEvaluateMSetMGet_Detailed(t *testing.T) {
 	t.Parallel()
 
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
+	runMSetMGetCases(t, ctx, []msetMGetCase{
 		{
-			name: "Success - key expires",
+			name: testNameSuccess,
 			setupMock: func(m *kvStoreMock) {
-				var keySet string
-				getCallCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						keySet = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
-						return []string{"1"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						getCallCount++
-						if getCallCount == 1 {
-							return []string{keySet}, []string{}, nil // Before expiry
-						}
-						return []string{""}, []string{}, nil // After expiry
-					}
-					if len(tokens) > 0 && tokens[0] == "TTL" {
-						return []string{"-2"}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
+				// Default mock handles MSET/MGET correctly
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "correctly",
+			wantNoteSubstr: noteCorrectly,
 		},
 		{
-			name: "Run fails",
+			name: testNameRunFailsMsg,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "SET fails",
+			name: "MSET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("set failed")
+				m.doErr = errors.New("mset failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "SET failed",
+			wantNoteSubstr: noteMsetFailed,
 		},
 		{
-			name: "EXPIRE returns wrong value",
+			name: "MGET returns too few lines",
 			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
-						return []string{"0"}, []string{}, nil // Wrong: should be "1"
-					}
-					return []string{""}, []string{}, nil
-				}
+				m.customDoFunc = tooFewLinesMGetDoFunc
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "EXPIRE should return 1",
+			wantNoteSubstr: "MGET returned too few lines",
 		},
 		{
-			name: "GET before expiry returns empty",
+			name: "MGET first value wrong",
 			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
-						return []string{"1"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						return []string{""}, []string{}, nil // Wrong: should have value
-					}
-					return []string{""}, []string{}, nil
-				}
+				m.customDoFunc = firstValueWrongMGetDoFunc
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "returned wrong value",
+			wantNoteSubstr: noteReturnedWrongValue,
 		},
-		{
-			name: "GET after expiry still has value",
-			setupMock: func(m *kvStoreMock) {
-				var keySet string
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						keySet = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
-						return []string{"1"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						return []string{keySet}, []string{}, nil // Wrong: should be empty after expiry
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
-		},
-		{
-			name: "TTL returns wrong value",
-			setupMock: func(m *kvStoreMock) {
-				var keySet string
-				getCallCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						keySet = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
-						return []string{"1"}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						getCallCount++
-						if getCallCount == 1 {
-							return []string{keySet}, []string{}, nil
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "TTL" {
-						return []string{"100"}, []string{}, nil // Wrong: should be "-2"
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "TTL should return -2",
-		},
-	}
+	})
+}
 
+func TestEvaluateMSetMGet_CapturedValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runMSetMGetCases(t, ctx, []msetMGetCase{
+		{
+			name: "MGET second value wrong",
+			setupMock: func(m *kvStoreMock) {
+				// MGET queries: keyB, keyA, keyZ; wrong value returned for keyA (2nd position).
+				m.customDoFunc = captureMSetThenMGet("", func(tokenPos int) bool { return tokenPos == 2 })
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteReturnedWrongValue,
+		},
+		{
+			name: "MGET third value not nil",
+			setupMock: func(m *kvStoreMock) {
+				// MGET queries: keyB, keyA, keyZ (keyZ doesn't exist); return a value instead of nil for it.
+				m.customDoFunc = captureMSetThenMGet("WRONG-VALUE", func(int) bool { return false })
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteShouldReturnNil,
+		},
+	})
+}
+
+// TestEvaluateTTLBasic_Detailed provides comprehensive coverage
+// ttlExpiresDoFunc simulates a program that correctly expires a key: TTL/EXPIRE
+// report success, and GET returns the value before expiry but empty after.
+func ttlExpiresDoFunc() func(string) ([]string, []string, error) {
+	var keySet string
+	getCallCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+			keySet = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
+			return []string{"1"}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			getCallCount++
+			if getCallCount == 1 {
+				return []string{keySet}, []string{}, nil // Before expiry
+			}
+			return []string{""}, []string{}, nil // After expiry
+		}
+		if len(tokens) > 0 && tokens[0] == "TTL" {
+			return []string{"-2"}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+func wrongExpireDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
+		return []string{"0"}, []string{}, nil // Wrong: should be "1"
+	}
+	return []string{""}, []string{}, nil
+}
+
+func emptyGetBeforeExpiryDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
+		return []string{"1"}, []string{}, nil
+	}
+	if len(tokens) > 0 && tokens[0] == cmdGET {
+		return []string{""}, []string{}, nil // Wrong: should have value
+	}
+	return []string{""}, []string{}, nil
+}
+
+// staleGetAfterExpiryDoFunc simulates GET still returning the value after expiry.
+func staleGetAfterExpiryDoFunc() func(string) ([]string, []string, error) {
+	var keySet string
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+			keySet = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
+			return []string{"1"}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			return []string{keySet}, []string{}, nil // Wrong: should be empty after expiry
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+// wrongTTLDoFunc simulates TTL reporting a bogus value for an expired key.
+func wrongTTLDoFunc() func(string) ([]string, []string, error) {
+	var keySet string
+	getCallCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+			keySet = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdEXPIRE {
+			return []string{"1"}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			getCallCount++
+			if getCallCount == 1 {
+				return []string{keySet}, []string{}, nil
+			}
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == "TTL" {
+			return []string{"100"}, []string{}, nil // Wrong: should be "-2"
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+type ttlBasicCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runTTLBasicCases(t *testing.T, ctx context.Context, tests []ttlBasicCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bag := make(baserubrics.RunBag)
@@ -1322,114 +1361,148 @@ func TestEvaluateTTLBasic_Detailed(t *testing.T) {
 	}
 }
 
-// TestEvaluateRange_Detailed provides comprehensive coverage
-func TestEvaluateRange_Detailed(t *testing.T) {
+func TestEvaluateTTLBasic_Detailed(t *testing.T) {
 	t.Parallel()
 
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
+	runTTLBasicCases(t, ctx, []ttlBasicCase{
 		{
-			name: "Success - all ranges work",
+			name: "Success - key expires",
 			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdRANGE {
-						// Simulate correct RANGE output for different queries
-						if strings.Contains(input, "RANGE b d") {
-							return []string{"b", "c", "d", "END"}, []string{}, nil
-						}
-						if strings.Contains(input, `RANGE "" c`) || strings.Contains(input, "RANGE  c") {
-							return []string{"a", "b", "c", "END"}, []string{}, nil
-						}
-						if strings.Contains(input, `RANGE d ""`) || strings.Contains(input, "RANGE d ") {
-							return []string{"d", "e", "END"}, []string{}, nil
-						}
-					}
-					return []string{""}, []string{}, nil
-				}
+				m.customDoFunc = ttlExpiresDoFunc()
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "correctly",
+			wantNoteSubstr: noteCorrectly,
 		},
 		{
-			name: "Run fails",
+			name: testNameRunFailsMsg,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "MSET fails",
+			name: "SET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("mset failed")
+				m.doErr = errors.New("set failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "MSET failed",
+			wantNoteSubstr: noteSetFailed,
 		},
-		{
-			name: "First RANGE returns wrong keys",
-			setupMock: func(m *kvStoreMock) {
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdRANGE {
-						return []string{"a", "b", "END"}, []string{}, nil // Wrong: should be b, c, d
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "returned wrong keys",
-		},
-		{
-			name: "Second RANGE fails",
-			setupMock: func(m *kvStoreMock) {
-				rangeCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "RANGE" {
-						rangeCount++
-						if rangeCount == 1 {
-							return []string{"b", "c", "d", "END"}, []string{}, nil
-						}
-						return nil, nil, errors.New("range failed")
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "failed",
-		},
-		{
-			name: "Third RANGE returns wrong keys",
-			setupMock: func(m *kvStoreMock) {
-				rangeCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "RANGE" {
-						rangeCount++
-						if rangeCount == 1 {
-							return []string{"b", "c", "d", "END"}, []string{}, nil
-						}
-						if rangeCount == 2 {
-							return []string{"a", "b", "c", "END"}, []string{}, nil
-						}
-						return []string{"x", "y", "END"}, []string{}, nil // Wrong
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "returned wrong keys",
-		},
-	}
+	})
+}
 
+func TestEvaluateTTLBasic_WrongValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runTTLBasicCases(t, ctx, []ttlBasicCase{
+		{
+			name: "EXPIRE returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongExpireDoFunc
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "EXPIRE should return 1",
+		},
+		{
+			name: "GET before expiry returns empty",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = emptyGetBeforeExpiryDoFunc
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteReturnedWrongValue,
+		},
+		{
+			name: "GET after expiry still has value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = staleGetAfterExpiryDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteShouldReturnNil,
+		},
+		{
+			name: "TTL returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongTTLDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "TTL should return -2",
+		},
+	})
+}
+
+// TestEvaluateRange_Detailed provides comprehensive coverage
+func correctRangeDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdRANGE {
+		// Simulate correct RANGE output for different queries
+		if strings.Contains(input, "RANGE b d") {
+			return []string{"b", "c", "d", testEndMarker}, []string{}, nil
+		}
+		if strings.Contains(input, `RANGE "" c`) || strings.Contains(input, "RANGE  c") {
+			return []string{"a", "b", "c", testEndMarker}, []string{}, nil
+		}
+		if strings.Contains(input, `RANGE d ""`) || strings.Contains(input, "RANGE d ") {
+			return []string{"d", "e", testEndMarker}, []string{}, nil
+		}
+	}
+	return []string{""}, []string{}, nil
+}
+
+func wrongFirstRangeDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdRANGE {
+		return []string{"a", "b", testEndMarker}, []string{}, nil // Wrong: should be b, c, d
+	}
+	return []string{""}, []string{}, nil
+}
+
+// rangeSequenceDoFunc returns a customDoFunc serving successive RANGE calls the given
+// results in order, repeating the last one for any calls beyond the provided sequence.
+func rangeSequenceDoFunc(results ...[]string) func(string) ([]string, []string, error) {
+	rangeCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) == 0 || tokens[0] != cmdRANGE {
+			return []string{""}, []string{}, nil
+		}
+		idx := rangeCount
+		if idx >= len(results) {
+			idx = len(results) - 1
+		}
+		rangeCount++
+		return results[idx], []string{}, nil
+	}
+}
+
+func secondRangeFailsDoFunc() func(string) ([]string, []string, error) {
+	rangeCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdRANGE {
+			rangeCount++
+			if rangeCount == 1 {
+				return []string{"b", "c", "d", testEndMarker}, []string{}, nil
+			}
+			return nil, nil, errors.New("range failed")
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+type rangeCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runRangeCases(t *testing.T, ctx context.Context, tests []rangeCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bag := make(baserubrics.RunBag)
@@ -1444,296 +1517,271 @@ func TestEvaluateRange_Detailed(t *testing.T) {
 	}
 }
 
-// TestEvaluateTransactions_Detailed provides comprehensive coverage
-func TestEvaluateTransactions_Detailed(t *testing.T) {
+func TestEvaluateRange_Detailed(t *testing.T) {
 	t.Parallel()
 
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
+	runRangeCases(t, ctx, []rangeCase{
 		{
-			name: "Success - full transaction flow",
+			name: "Success - all ranges work",
 			setupMock: func(m *kvStoreMock) {
-				var commitKey, commitVal string
-				inTransaction := false
-				var txnStore = make(map[string]string)
-				getCount := 0
-
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) == 0 {
-						return []string{""}, []string{}, nil
-					}
-
-					cmd := tokens[0]
-					switch cmd {
-					case cmdBEGIN:
-						inTransaction = true
-						txnStore = make(map[string]string)
-						return []string{""}, []string{}, nil
-					case cmdSET:
-						if len(tokens) <= 2 {
-							return []string{""}, []string{}, nil
-						}
-						key := tokens[1]
-						val := tokens[2]
-						if inTransaction {
-							txnStore[key] = val
-						}
-						if commitKey == "" && getCount > 0 {
-							// Second SET is for commit
-							commitKey = key
-							commitVal = val
-						}
-						return []string{""}, []string{}, nil
-					case cmdGET:
-						if len(tokens) <= 1 {
-							return []string{""}, []string{}, nil
-						}
-						getCount++
-						key := tokens[1]
-						switch getCount {
-						case 1:
-							// First GET (in transaction, read-your-writes from txnStore)
-							if val, ok := txnStore[key]; ok {
-								return []string{val}, []string{}, nil
-							}
-							return []string{""}, []string{}, nil
-						case 2:
-							// After ABORT - key should not exist
-							return []string{""}, []string{}, nil
-						case 3:
-							// After restart - committed value should persist
-							if key == commitKey {
-								return []string{commitVal}, []string{}, nil
-							}
-							return []string{""}, []string{}, nil
-						}
-					case cmdABORT:
-						inTransaction = false
-						txnStore = make(map[string]string)
-						return []string{""}, []string{}, nil
-					case cmdCOMMIT:
-						inTransaction = false
-						// Persist txnStore to main store
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
+				m.customDoFunc = correctRangeDoFunc
 			},
 			wantPoints:     5,
-			wantNoteSubstr: "correctly",
+			wantNoteSubstr: noteCorrectly,
 		},
 		{
-			name: "Run fails",
+			name: testNameRunFailsMsg,
 			setupMock: func(m *kvStoreMock) {
 				m.firstRunErr = errors.New("run failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "Execution failed",
+			wantNoteSubstr: noteExecutionFailed,
 		},
 		{
-			name: "BEGIN fails",
+			name: "MSET fails",
 			setupMock: func(m *kvStoreMock) {
-				m.doErr = errors.New("begin failed")
+				m.doErr = errors.New("mset failed")
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "BEGIN failed",
+			wantNoteSubstr: noteMsetFailed,
 		},
-		{
-			name: "GET in transaction returns wrong value",
-			setupMock: func(m *kvStoreMock) {
-				var txnVals = make(map[string]string)
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						txnVals[tokens[1]] = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET && len(tokens) > 1 {
-						// Return empty instead of the actual value
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET in transaction should return",
-		},
-		{
-			name: "ABORT fails",
-			setupMock: func(m *kvStoreMock) {
-				var setVal string
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						setVal = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdABORT {
-						return nil, nil, errors.New("abort failed")
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						return []string{setVal}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "ABORT failed",
-		},
-		{
-			name: "GET after ABORT still returns value",
-			setupMock: func(m *kvStoreMock) {
-				var setVal string
-				getCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						setVal = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						getCount++
-						// Both GETs return value - second should be empty after abort
-						return []string{setVal}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET after ABORT should return nil",
-		},
-		{
-			name: "COMMIT fails",
-			setupMock: func(m *kvStoreMock) {
-				var firstSetVal, secondSetVal string
-				getCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						if firstSetVal == "" {
-							firstSetVal = tokens[2]
-						} else if secondSetVal == "" {
-							secondSetVal = tokens[2]
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdCOMMIT {
-						return nil, nil, errors.New("commit failed")
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						getCount++
-						if getCount == 1 {
-							return []string{firstSetVal}, []string{}, nil
-						}
-						if getCount == 2 {
-							return []string{""}, []string{}, nil
-						}
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "COMMIT failed",
-		},
-		{
-			name: "Kill fails",
-			setupMock: func(m *kvStoreMock) {
-				var firstSetVal, commitVal string
-				getCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
-						if firstSetVal == "" {
-							firstSetVal = tokens[2]
-						} else if commitVal == "" {
-							commitVal = tokens[2]
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == cmdGET {
-						getCount++
-						if getCount == 1 {
-							return []string{firstSetVal}, []string{}, nil
-						}
-						if getCount == 2 {
-							return []string{""}, []string{}, nil
-						}
-					}
-					return []string{""}, []string{}, nil
-				}
-				m.killErr = errors.New("kill failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Kill failed",
-		},
-		{
-			name: "Restart fails",
-			setupMock: func(m *kvStoreMock) {
-				var firstSetVal, commitVal string
-				getCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "SET" && len(tokens) > 2 {
-						if firstSetVal == "" {
-							firstSetVal = tokens[2]
-						} else if commitVal == "" {
-							commitVal = tokens[2]
-						}
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "GET" {
-						getCount++
-						if getCount == 1 {
-							return []string{firstSetVal}, []string{}, nil
-						}
-						if getCount == 2 {
-							return []string{""}, []string{}, nil
-						}
-					}
-					return []string{""}, []string{}, nil
-				}
-				m.secondRunErr = errors.New("restart failed")
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "Restart failed",
-		},
-		{
-			name: "GET after restart returns empty (not persistent)",
-			setupMock: func(m *kvStoreMock) {
-				var firstSetVal string
-				getCount := 0
-				m.customDoFunc = func(input string) ([]string, []string, error) {
-					tokens := strings.Fields(input)
-					if len(tokens) > 0 && tokens[0] == "SET" && len(tokens) > 2 && firstSetVal == "" {
-						firstSetVal = tokens[2]
-						return []string{""}, []string{}, nil
-					}
-					if len(tokens) > 0 && tokens[0] == "GET" {
-						getCount++
-						if getCount == 1 {
-							return []string{firstSetVal}, []string{}, nil
-						}
-						if getCount == 2 {
-							return []string{""}, []string{}, nil
-						}
-						// After restart - should return empty (not persistent)
-						return []string{""}, []string{}, nil
-					}
-					return []string{""}, []string{}, nil
-				}
-			},
-			wantPoints:     0,
-			wantNoteSubstr: "GET after restart should return",
-		},
-	}
+	})
+}
 
+func TestEvaluateRange_WrongValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runRangeCases(t, ctx, []rangeCase{
+		{
+			name: "First RANGE returns wrong keys",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongFirstRangeDoFunc
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned wrong keys",
+		},
+		{
+			name: "Second RANGE fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = secondRangeFailsDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "failed",
+		},
+		{
+			name: "Third RANGE returns wrong keys",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = rangeSequenceDoFunc(
+					[]string{"b", "c", "d", testEndMarker},
+					[]string{"a", "b", "c", testEndMarker},
+					[]string{"x", "y", testEndMarker}, // Wrong
+				)
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "returned wrong keys",
+		},
+	})
+}
+
+// TestEvaluateTransactions_Detailed provides comprehensive coverage
+// fullTransactionFlowDoFunc simulates a program that correctly implements
+// BEGIN/SET/GET/ABORT/COMMIT with read-your-writes and persistence semantics.
+func fullTransactionFlowDoFunc() func(string) ([]string, []string, error) {
+	var commitKey, commitVal string
+	inTransaction := false
+	txnStore := make(map[string]string)
+	getCount := 0
+
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) == 0 {
+			return []string{""}, []string{}, nil
+		}
+
+		switch tokens[0] {
+		case cmdBEGIN:
+			inTransaction = true
+			txnStore = make(map[string]string)
+			return []string{""}, []string{}, nil
+		case cmdSET:
+			return txnSet(tokens, &inTransaction, txnStore, &commitKey, &commitVal, getCount)
+		case cmdGET:
+			return txnGet(tokens, &getCount, txnStore, commitKey, commitVal)
+		case cmdABORT:
+			inTransaction = false
+			txnStore = make(map[string]string)
+			return []string{""}, []string{}, nil
+		case cmdCOMMIT:
+			inTransaction = false
+			return []string{""}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+func txnSet(
+	tokens []string, inTransaction *bool, txnStore map[string]string, commitKey, commitVal *string, getCount int,
+) (stdout, stderr []string, err error) {
+	if len(tokens) <= 2 {
+		return []string{""}, []string{}, nil
+	}
+	key, val := tokens[1], tokens[2]
+	if *inTransaction {
+		txnStore[key] = val
+	}
+	if *commitKey == "" && getCount > 0 {
+		// Second SET is for commit
+		*commitKey = key
+		*commitVal = val
+	}
+	return []string{""}, []string{}, nil
+}
+
+func txnGet(tokens []string, getCount *int, txnStore map[string]string, commitKey, commitVal string) (stdout, stderr []string, err error) {
+	if len(tokens) <= 1 {
+		return []string{""}, []string{}, nil
+	}
+	*getCount++
+	key := tokens[1]
+	switch *getCount {
+	case 1:
+		// First GET (in transaction, read-your-writes from txnStore)
+		if val, ok := txnStore[key]; ok {
+			return []string{val}, []string{}, nil
+		}
+	case 3:
+		// After restart - committed value should persist
+		if key == commitKey {
+			return []string{commitVal}, []string{}, nil
+		}
+	}
+	// case 2 (after ABORT) and any unmatched key: nothing should exist
+	return []string{""}, []string{}, nil
+}
+
+func wrongGetInTxnDoFunc(input string) (stdout, stderr []string, err error) {
+	tokens := strings.Fields(input)
+	if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+		return []string{""}, []string{}, nil
+	}
+	if len(tokens) > 0 && tokens[0] == cmdGET && len(tokens) > 1 {
+		// Return empty instead of the actual value
+		return []string{""}, []string{}, nil
+	}
+	return []string{""}, []string{}, nil
+}
+
+func abortFailsDoFunc() func(string) ([]string, []string, error) {
+	var setVal string
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+			setVal = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdABORT {
+			return nil, nil, errors.New("abort failed")
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			return []string{setVal}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+func getAfterAbortStillReturnsDoFunc() func(string) ([]string, []string, error) {
+	var setVal string
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 {
+			setVal = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			// Both GETs return value - second should be empty after abort
+			return []string{setVal}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+// twoSetTwoGetDoFunc drives scenarios shared by COMMIT/Kill/Restart failure cases: two
+// SETs are captured in order, and GET replies with the first SET's value on the first
+// call and empty afterwards, until the given override intercepts a specific command.
+func twoSetTwoGetDoFunc(override func(cmd string) ([]string, []string, error, bool)) func(string) ([]string, []string, error) {
+	var firstSetVal string
+	setCount, getCount := 0, 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) == 0 {
+			return []string{""}, []string{}, nil
+		}
+		if out, outErr, err, handled := override(tokens[0]); handled {
+			return out, outErr, err
+		}
+		switch tokens[0] {
+		case cmdSET:
+			if len(tokens) > 2 {
+				setCount++
+				if setCount == 1 {
+					firstSetVal = tokens[2]
+				}
+			}
+		case cmdGET:
+			getCount++
+			if getCount == 1 {
+				return []string{firstSetVal}, []string{}, nil
+			}
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+func noOverride(string) (stdout, stderr []string, err error, handled bool) {
+	return nil, nil, nil, false
+}
+
+func commitFailsOverride(cmd string) (stdout, stderr []string, err error, handled bool) {
+	if cmd == cmdCOMMIT {
+		return nil, nil, errors.New("commit failed"), true
+	}
+	return noOverride(cmd)
+}
+
+func getAfterRestartEmptyDoFunc() func(string) ([]string, []string, error) {
+	var firstSetVal string
+	getCount := 0
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) > 0 && tokens[0] == cmdSET && len(tokens) > 2 && firstSetVal == "" {
+			firstSetVal = tokens[2]
+			return []string{""}, []string{}, nil
+		}
+		if len(tokens) > 0 && tokens[0] == cmdGET {
+			getCount++
+			if getCount == 1 {
+				return []string{firstSetVal}, []string{}, nil
+			}
+			// getCount == 2 (after abort) and getCount 3+ (after restart): empty either way
+			return []string{""}, []string{}, nil
+		}
+		return []string{""}, []string{}, nil
+	}
+}
+
+type transactionsCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runTransactionsCases(t *testing.T, ctx context.Context, tests []transactionsCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bag := make(baserubrics.RunBag)
@@ -1746,6 +1794,115 @@ func TestEvaluateTransactions_Detailed(t *testing.T) {
 			assert.Contains(t, result.Note, tt.wantNoteSubstr)
 		})
 	}
+}
+
+func TestEvaluateTransactions_Detailed(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runTransactionsCases(t, ctx, []transactionsCase{
+		{
+			name: "Success - full transaction flow",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = fullTransactionFlowDoFunc()
+			},
+			wantPoints:     5,
+			wantNoteSubstr: noteCorrectly,
+		},
+		{
+			name: testNameRunFailsMsg,
+			setupMock: func(m *kvStoreMock) {
+				m.firstRunErr = errors.New("run failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: noteExecutionFailed,
+		},
+		{
+			name: "BEGIN fails",
+			setupMock: func(m *kvStoreMock) {
+				m.doErr = errors.New("begin failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "BEGIN failed",
+		},
+		{
+			name: "GET in transaction returns wrong value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = wrongGetInTxnDoFunc
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET in transaction should return",
+		},
+	})
+}
+
+func TestEvaluateTransactions_Abort(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runTransactionsCases(t, ctx, []transactionsCase{
+		{
+			name: "ABORT fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = abortFailsDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "ABORT failed",
+		},
+		{
+			name: "GET after ABORT still returns value",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = getAfterAbortStillReturnsDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after ABORT should return nil",
+		},
+	})
+}
+
+func TestEvaluateTransactions_CommitAndRestart(t *testing.T) {
+	t.Parallel()
+
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runTransactionsCases(t, ctx, []transactionsCase{
+		{
+			name: "COMMIT fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = twoSetTwoGetDoFunc(commitFailsOverride)
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "COMMIT failed",
+		},
+		{
+			name: "Kill fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = twoSetTwoGetDoFunc(noOverride)
+				m.killErr = errors.New("kill failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Kill failed",
+		},
+		{
+			name: "Restart fails",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = twoSetTwoGetDoFunc(noOverride)
+				m.secondRunErr = errors.New("restart failed")
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "Restart failed",
+		},
+		{
+			name: "GET after restart returns empty (not persistent)",
+			setupMock: func(m *kvStoreMock) {
+				m.customDoFunc = getAfterRestartEmptyDoFunc()
+			},
+			wantPoints:     0,
+			wantNoteSubstr: "GET after restart should return",
+		},
+	})
 }
 
 // TestDeleteExistsErrorPaths tests all error branches in EvaluateDeleteExists
@@ -1778,7 +1935,7 @@ func TestDeleteExistsErrorPaths(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "wrong value",
+			wantNoteSubstr: noteWrongValue,
 		},
 		{
 			name: "checkDelOperation_returns_error",
@@ -1802,7 +1959,7 @@ func TestDeleteExistsErrorPaths(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "wrong value",
+			wantNoteSubstr: noteWrongValue,
 		},
 		{
 			name: "checkExistsAfterDel_returns_error",
@@ -1828,7 +1985,7 @@ func TestDeleteExistsErrorPaths(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "wrong value",
+			wantNoteSubstr: noteWrongValue,
 		},
 		{
 			name: "checkGetAfterDel_returns_error",
@@ -1848,15 +2005,15 @@ func TestDeleteExistsErrorPaths(t *testing.T) {
 			name: "checkGetAfterDel_returns_non_nil_value",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
-					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // EXISTS before
-					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // DEL
-					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil },          // EXISTS after
-					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET (should be nil)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXISTS before
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // DEL
+					func(input string) ([]string, []string, error) { return []string{"0"}, nil, nil },           // EXISTS after
+					func(input string) ([]string, []string, error) { return []string{valWrongValue}, nil, nil }, // GET (should be nil)
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
+			wantNoteSubstr: noteShouldReturnNil,
 		},
 	}
 
@@ -1919,13 +2076,13 @@ func TestTTLBasicErrorPaths(t *testing.T) {
 			name: "checkGetBeforeExpiry_returns_wrong_value",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
-					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },          // EXPIRE
-					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
+					func(input string) ([]string, []string, error) { return []string{"1"}, nil, nil },           // EXPIRE
+					func(input string) ([]string, []string, error) { return []string{valWrongValue}, nil, nil }, // GET
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "wrong value",
+			wantNoteSubstr: noteWrongValue,
 		},
 		{
 			name: "checkGetAfterExpiry_returns_error",
@@ -1965,7 +2122,7 @@ func TestTTLBasicErrorPaths(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
+			wantNoteSubstr: noteShouldReturnNil,
 		},
 		{
 			name: "checkTTLAfterExpiry_returns_error",
@@ -2034,7 +2191,7 @@ func TestOverwriteKeyErrorPath(t *testing.T) {
 		}
 		result := rubrics.EvaluateOverwriteKey(ctx, mock, make(baserubrics.RunBag))
 		assert.Equal(t, float64(0), result.Awarded)
-		assert.Contains(t, result.Note, "Execution failed")
+		assert.Contains(t, result.Note, noteExecutionFailed)
 	})
 
 	t.Run("GET_fails", func(t *testing.T) {
@@ -2046,7 +2203,7 @@ func TestOverwriteKeyErrorPath(t *testing.T) {
 		}
 		result := rubrics.EvaluateOverwriteKey(ctx, mock, make(baserubrics.RunBag))
 		assert.Equal(t, float64(0), result.Awarded)
-		assert.Contains(t, result.Note, "Execution failed")
+		assert.Contains(t, result.Note, noteExecutionFailed)
 	})
 }
 
@@ -2064,8 +2221,8 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 			name: "MGET_returns_too_few_lines",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },               // MSET
-					func(input string) ([]string, []string, error) { return []string{"val1", "val2"}, nil, nil }, // MGET (need 3)
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                // MSET
+					func(input string) ([]string, []string, error) { return []string{"val1", valVal2}, nil, nil }, // MGET (need 3)
 				}
 			},
 			wantPoints:     0,
@@ -2079,7 +2236,7 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "MSET failed",
+			wantNoteSubstr: noteMsetFailed,
 		},
 		{
 			name: "MGET_fails",
@@ -2096,12 +2253,12 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 			name: "MGET_returns_wrong_value_for_first_key",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                    // MSET
-					func(input string) ([]string, []string, error) { return []string{"wrong", "val2", ""}, nil, nil }, // MGET
+					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                      // MSET
+					func(input string) ([]string, []string, error) { return []string{valWrong, valVal2, ""}, nil, nil }, // MGET
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "returned wrong value",
+			wantNoteSubstr: noteReturnedWrongValue,
 		},
 		{
 			name: "MGET_returns_wrong_value_for_second_key",
@@ -2118,12 +2275,12 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 					}, // MSET
 					func(input string) ([]string, []string, error) {
 						// MGET keyB keyA keyZ -> should return valB, valA, nil
-						return []string{valB, "wrong", ""}, nil, nil
+						return []string{valB, valWrong, ""}, nil, nil
 					}, // MGET
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "returned wrong value",
+			wantNoteSubstr: noteReturnedWrongValue,
 		},
 		{
 			name: "MGET_returns_non_nil_for_nonexistent_key",
@@ -2139,12 +2296,12 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 						return []string{}, nil, nil
 					}, // MSET
 					func(input string) ([]string, []string, error) {
-						return []string{valB, valA, "wrongvalue"}, nil, nil
+						return []string{valB, valA, valWrongValue}, nil, nil
 					}, // MGET
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
+			wantNoteSubstr: noteShouldReturnNil,
 		},
 	}
 
@@ -2160,20 +2317,74 @@ func TestMSetMGetErrorPaths(t *testing.T) {
 }
 
 // TestTransactionsErrorPaths tests error paths in EvaluateTransactions
-func TestTransactionsErrorPaths(t *testing.T) {
+// captureSetValueDoFunc returns a doFunc that records a SET's value into dst.
+func captureSetValueDoFunc(dst *string) func(string) ([]string, []string, error) {
+	return func(input string) ([]string, []string, error) {
+		tokens := strings.Fields(input)
+		if len(tokens) >= 3 {
+			*dst = tokens[2]
+		}
+		return []string{}, nil, nil
+	}
+}
+
+func okDoFunc(string) (stdout, stderr []string, err error) { return []string{}, nil, nil }
+
+// beginDoFunc is an alias for okDoFunc, used where a successful BEGIN sits alongside
+// another successful step in the same doFuncs list (avoids a dupOption lint false
+// positive from passing the same identifier twice).
+var beginDoFunc = okDoFunc
+
+func errDoFunc(msg string) func(string) ([]string, []string, error) {
+	return func(string) ([]string, []string, error) { return nil, nil, errors.New(msg) }
+}
+
+func valueDoFunc(val string) func(string) ([]string, []string, error) {
+	return func(string) ([]string, []string, error) { return []string{val}, nil, nil }
+}
+
+// successfulAbortSequence returns the doFunc sequence for a transaction that SETs
+// dst, reads it back, then ABORTs successfully with an empty GET afterward -- the
+// common prefix shared by every commit_* error-path case below.
+func successfulAbortSequence(dst *string) []func(string) ([]string, []string, error) {
+	return []func(string) ([]string, []string, error){
+		okDoFunc,                   // BEGIN (abort)
+		captureSetValueDoFunc(dst), // SET (abort)
+		func(string) ([]string, []string, error) { return []string{*dst}, nil, nil }, // GET (abort)
+		okDoFunc,        // ABORT
+		valueDoFunc(""), // GET after ABORT
+	}
+}
+
+type transactionsErrorCase struct {
+	name           string
+	setupMock      func(*kvStoreMock)
+	wantPoints     float64
+	wantNoteSubstr string
+}
+
+func runTransactionsErrorCases(t *testing.T, ctx context.Context, tests []transactionsErrorCase) {
+	t.Helper()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newKVStoreMock(t)
+			tt.setupMock(mock)
+			result := rubrics.EvaluateTransactions(ctx, mock, make(baserubrics.RunBag))
+			assert.Equal(t, tt.wantPoints, result.Awarded)
+			assert.Contains(t, result.Note, tt.wantNoteSubstr)
+		})
+	}
+}
+
+func TestTransactionsErrorPaths_Abort(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 
-	tests := []struct {
-		name           string
-		setupMock      func(*kvStoreMock)
-		wantPoints     float64
-		wantNoteSubstr string
-	}{
+	runTransactionsErrorCases(t, ctx, []transactionsErrorCase{
 		{
 			name: "abort_BEGIN_fails",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("begin error") }, // BEGIN
+					errDoFunc("begin error"), // BEGIN
 				}
 			},
 			wantPoints:     0,
@@ -2183,8 +2394,8 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "abort_SET_in_transaction_fails",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("set error") }, // SET
+					okDoFunc,               // BEGIN
+					errDoFunc("set error"), // SET
 				}
 			},
 			wantPoints:     0,
@@ -2194,9 +2405,9 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "abort_GET_in_transaction_fails",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // SET
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET
+					okDoFunc,               // BEGIN
+					okDoFunc,               // SET
+					errDoFunc("get error"), // GET
 				}
 			},
 			wantPoints:     0,
@@ -2206,9 +2417,9 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "abort_GET_in_transaction_returns_wrong_value",
 			setupMock: func(m *kvStoreMock) {
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // BEGIN
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // SET
-					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET
+					okDoFunc,                   // BEGIN
+					okDoFunc,                   // SET
+					valueDoFunc(valWrongValue), // GET
 				}
 			},
 			wantPoints:     0,
@@ -2219,16 +2430,10 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			setupMock: func(m *kvStoreMock) {
 				var setValue string
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET
-					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },        // GET
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("abort error") }, // ABORT
+					okDoFunc,                         // BEGIN
+					captureSetValueDoFunc(&setValue), // SET
+					func(string) ([]string, []string, error) { return []string{setValue}, nil, nil }, // GET
+					errDoFunc("abort error"), // ABORT
 				}
 			},
 			wantPoints:     0,
@@ -2239,17 +2444,11 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			setupMock: func(m *kvStoreMock) {
 				var setValue string
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET
-					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET after ABORT
+					okDoFunc,                         // BEGIN
+					captureSetValueDoFunc(&setValue), // SET
+					func(string) ([]string, []string, error) { return []string{setValue}, nil, nil }, // GET
+					okDoFunc,               // ABORT
+					errDoFunc("get error"), // GET after ABORT
 				}
 			},
 			wantPoints:     0,
@@ -2260,40 +2459,30 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			setupMock: func(m *kvStoreMock) {
 				var setValue string
 				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET
-					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },     // GET
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // ABORT
-					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET after ABORT
+					okDoFunc,                         // BEGIN
+					captureSetValueDoFunc(&setValue), // SET
+					func(string) ([]string, []string, error) { return []string{setValue}, nil, nil }, // GET
+					okDoFunc,                   // ABORT
+					valueDoFunc(valWrongValue), // GET after ABORT
 				}
 			},
 			wantPoints:     0,
-			wantNoteSubstr: "should return nil",
+			wantNoteSubstr: noteShouldReturnNil,
 		},
+	})
+}
+
+func TestTransactionsErrorPaths_Commit(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+
+	runTransactionsErrorCases(t, ctx, []transactionsErrorCase{
 		{
 			name: "commit_BEGIN_fails",
 			setupMock: func(m *kvStoreMock) {
 				var setValue string
-				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (abort)
-					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },        // GET (abort)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },                // ABORT
-					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },              // GET after ABORT
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("begin error") }, // BEGIN (commit)
-				}
+				m.doFuncs = append(successfulAbortSequence(&setValue),
+					errDoFunc("begin error"), // BEGIN (commit)
+				)
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "Second BEGIN failed",
@@ -2302,21 +2491,10 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "commit_SET_fails",
 			setupMock: func(m *kvStoreMock) {
 				var setValue string
-				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (abort)
-					func(input string) ([]string, []string, error) { return []string{setValue}, nil, nil },      // GET (abort)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
-					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("set error") }, // SET (commit)
-				}
+				m.doFuncs = append(successfulAbortSequence(&setValue),
+					okDoFunc,               // BEGIN (commit)
+					errDoFunc("set error"), // SET (commit)
+				)
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "SET in second transaction failed",
@@ -2325,29 +2503,11 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "commit_COMMIT_fails",
 			setupMock: func(m *kvStoreMock) {
 				var setAbortValue, setCommitValue string
-				_ = setCommitValue
-				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setAbortValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (abort)
-					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
-					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setCommitValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (commit)
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("commit error") }, // COMMIT
-				}
+				m.doFuncs = append(successfulAbortSequence(&setAbortValue),
+					okDoFunc,                               // BEGIN (commit)
+					captureSetValueDoFunc(&setCommitValue), // SET (commit)
+					errDoFunc("commit error"),              // COMMIT
+				)
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "COMMIT failed",
@@ -2356,30 +2516,12 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "commit_GET_after_restart_fails",
 			setupMock: func(m *kvStoreMock) {
 				var setAbortValue, setCommitValue string
-				_ = setCommitValue
-				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setAbortValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (abort)
-					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
-					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setCommitValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (commit)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // COMMIT
-					func(input string) ([]string, []string, error) { return nil, nil, errors.New("get error") }, // GET after restart
-				}
+				m.doFuncs = append(successfulAbortSequence(&setAbortValue),
+					beginDoFunc,                            // BEGIN (commit)
+					captureSetValueDoFunc(&setCommitValue), // SET (commit)
+					okDoFunc,                               // COMMIT
+					errDoFunc("get error"),                 // GET after restart
+				)
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "GET after restart failed",
@@ -2388,43 +2530,15 @@ func TestTransactionsErrorPaths(t *testing.T) {
 			name: "commit_GET_after_restart_returns_wrong_value",
 			setupMock: func(m *kvStoreMock) {
 				var setAbortValue, setCommitValue string
-				_ = setCommitValue
-				m.doFuncs = []func(string) ([]string, []string, error){
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil }, // BEGIN (abort)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setAbortValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (abort)
-					func(input string) ([]string, []string, error) { return []string{setAbortValue}, nil, nil }, // GET (abort)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // ABORT
-					func(input string) ([]string, []string, error) { return []string{""}, nil, nil },            // GET after ABORT
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },              // BEGIN (commit)
-					func(input string) ([]string, []string, error) {
-						tokens := strings.Fields(input)
-						if len(tokens) >= 3 {
-							setCommitValue = tokens[2]
-						}
-						return []string{}, nil, nil
-					}, // SET (commit)
-					func(input string) ([]string, []string, error) { return []string{}, nil, nil },             // COMMIT
-					func(input string) ([]string, []string, error) { return []string{"wrongvalue"}, nil, nil }, // GET after restart
-				}
+				m.doFuncs = append(successfulAbortSequence(&setAbortValue),
+					beginDoFunc,                            // BEGIN (commit)
+					captureSetValueDoFunc(&setCommitValue), // SET (commit)
+					okDoFunc,                               // COMMIT
+					valueDoFunc(valWrongValue),             // GET after restart
+				)
 			},
 			wantPoints:     0,
 			wantNoteSubstr: "GET after restart should return",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mock := newKVStoreMock(t)
-			tt.setupMock(mock)
-			result := rubrics.EvaluateTransactions(ctx, mock, make(baserubrics.RunBag))
-			assert.Equal(t, tt.wantPoints, result.Awarded)
-			assert.Contains(t, result.Note, tt.wantNoteSubstr)
-		})
-	}
+	})
 }

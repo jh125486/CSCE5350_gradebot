@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const echoTestCmd = "echo test"
+
 // mockCommandFactory creates commands that don't actually run
 type mockCommandFactory struct {
 	failStart bool
@@ -107,7 +109,7 @@ func TestExecuteProject1(t *testing.T) {
 				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: &gbclient.Config{
 					Dir:            gbclient.WorkDir(t.TempDir()),
-					RunCmd:         "echo test",
+					RunCmd:         echoTestCmd,
 					CommandFactory: &mockCommandFactory{},
 					Writer:         io.Discard,
 					Reader:         nil, // Will skip upload prompt
@@ -145,7 +147,7 @@ func TestExecuteProject2(t *testing.T) {
 				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
 				cfg: &gbclient.Config{
 					Dir:            gbclient.WorkDir(t.TempDir()),
-					RunCmd:         "echo test",
+					RunCmd:         echoTestCmd,
 					CommandFactory: &mockCommandFactory{},
 					Writer:         io.Discard,
 					Reader:         nil, // Will skip upload prompt
@@ -173,7 +175,7 @@ func TestExecuteProject1_Integration(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(tempDir),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         nil,
@@ -189,7 +191,7 @@ func TestExecuteProject2_Integration(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(tempDir),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         nil,
@@ -204,7 +206,7 @@ func TestExecuteProject1WithUpload(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
@@ -220,7 +222,7 @@ func TestExecuteProject2WithUpload(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
@@ -236,7 +238,7 @@ func TestExecuteProject1WithUploadError(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
@@ -253,7 +255,7 @@ func TestExecuteProject2WithUploadError(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("y\n"),
@@ -270,7 +272,7 @@ func TestExecuteProject1WithQualityClient(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("n\n"),
@@ -286,7 +288,7 @@ func TestExecuteProject2WithQualityClient(t *testing.T) {
 	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
 	cfg := &gbclient.Config{
 		Dir:            gbclient.WorkDir(t.TempDir()),
-		RunCmd:         "echo test",
+		RunCmd:         echoTestCmd,
 		CommandFactory: &mockCommandFactory{},
 		Writer:         io.Discard,
 		Reader:         strings.NewReader("n\n"),
