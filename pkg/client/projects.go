@@ -21,8 +21,8 @@ var (
 
 // ExecuteProject1 executes the project1 grading flow using a runtime config.
 func ExecuteProject1(ctx context.Context, cfg *client.Config) error {
-	return client.ExecuteProject(ctx, cfg, "CSCE5350:Project1", project1Instructions,
-		baserubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+	return client.ExecuteProject(ctx, cfg, "CSCE5350:Project1", project1Instructions, baserubrics.RunBag{},
+		baserubrics.EvaluateGit(osfs.New(cfg.WorkDir.String())),
 		rubrics.EvaluateDataFileCreated,
 		rubrics.EvaluateSetGet,
 		rubrics.EvaluateOverwriteKey,
@@ -33,8 +33,8 @@ func ExecuteProject1(ctx context.Context, cfg *client.Config) error {
 
 // ExecuteProject2 executes the project2 grading flow using a runtime config.
 func ExecuteProject2(ctx context.Context, cfg *client.Config) error {
-	return client.ExecuteProject(ctx, cfg, "CSCE5350:Project2", project2Instructions,
-		baserubrics.EvaluateGit(osfs.New(cfg.Dir.String())),
+	return client.ExecuteProject(ctx, cfg, "CSCE5350:Project2", project2Instructions, baserubrics.RunBag{},
+		baserubrics.EvaluateGit(osfs.New(cfg.WorkDir.String())),
 		rubrics.EvaluateDeleteExists,
 		rubrics.EvaluateMSetMGet,
 		rubrics.EvaluateTTLBasic,

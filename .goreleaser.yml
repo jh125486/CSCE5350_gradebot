@@ -26,6 +26,7 @@ builds:
     ldflags:
       - -s -w
       - -X main.buildID={{ .Env.BUILD_ID }}
+      - -X main.version={{ .Version }}
     tags:
       - netgo
     flags:

@@ -5,6 +5,7 @@ import (
 	basecli "github.com/jh125486/gradebot/pkg/cli"
 	baseclient "github.com/jh125486/gradebot/pkg/client"
 	"github.com/jh125486/gradebot/pkg/proto/protoconnect"
+	baserubrics "github.com/jh125486/gradebot/pkg/rubrics"
 )
 
 type (
@@ -24,32 +25,42 @@ type (
 )
 
 // Run executes the Project 1 grading client.
-func (cmd *Project1Cmd) Run(ctx basecli.Context) error {
+func (cmd *Project1Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
 	cfg := &baseclient.Config{
-		ServerURL:      cmd.ServerURL,
-		Dir:            cmd.Dir,
-		RunCmd:         cmd.RunCmd,
-		QualityClient:  protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
-		RubricClient:   protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-		Reader:         cmd.Stdin,
-		Writer:         cmd.Stdout,
-		CommandFactory: cmd.CommandFactory,
+		ServerURL:     cmd.ServerURL,
+		WorkDir:       cmd.WorkDir,
+		RunCmd:        cmd.RunCmd,
+		Env:           cmd.Env,
+		QualityClient: protoconnect.NewQualityServiceClient(svc.Client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(svc.Client, cmd.ServerURL),
+		Reader:        svc.Stdin,
+		Writer:        svc.Stdout,
+	}
+	if svc.CommandBuilder != nil {
+		cfg.ProgramBuilder = func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
+			return baserubrics.New(workDir, runCmd, baserubrics.WithCommandBuilder(svc.CommandBuilder)), nil
+		}
 	}
 
 	return client.ExecuteProject1(ctx, cfg)
 }
 
 // Run executes the Project 2 grading client.
-func (cmd *Project2Cmd) Run(ctx basecli.Context) error {
+func (cmd *Project2Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
 	cfg := &baseclient.Config{
-		ServerURL:      cmd.ServerURL,
-		Dir:            cmd.Dir,
-		RunCmd:         cmd.RunCmd,
-		QualityClient:  protoconnect.NewQualityServiceClient(cmd.Client, cmd.ServerURL),
-		RubricClient:   protoconnect.NewRubricServiceClient(cmd.Client, cmd.ServerURL),
-		Reader:         cmd.Stdin,
-		Writer:         cmd.Stdout,
-		CommandFactory: cmd.CommandFactory,
+		ServerURL:     cmd.ServerURL,
+		WorkDir:       cmd.WorkDir,
+		RunCmd:        cmd.RunCmd,
+		Env:           cmd.Env,
+		QualityClient: protoconnect.NewQualityServiceClient(svc.Client, cmd.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(svc.Client, cmd.ServerURL),
+		Reader:        svc.Stdin,
+		Writer:        svc.Stdout,
+	}
+	if svc.CommandBuilder != nil {
+		cfg.ProgramBuilder = func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
+			return baserubrics.New(workDir, runCmd, baserubrics.WithCommandBuilder(svc.CommandBuilder)), nil
+		}
 	}
 
 	return client.ExecuteProject2(ctx, cfg)

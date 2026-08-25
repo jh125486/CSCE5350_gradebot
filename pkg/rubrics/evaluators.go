@@ -67,7 +67,7 @@ func Reset(program baserubrics.ProgramRunner) error {
 // EvaluateDataFileCreated checks that data.db is created after a SET
 func EvaluateDataFileCreated(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("DataFileCreated", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	bag[key1] = uuid.New().String()
@@ -89,7 +89,7 @@ func EvaluatePersistenceAfterRestart(
 	ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag,
 ) baserubrics.RubricItem {
 	rubricItem := newRubricItem("PersistenceAfterRestart", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	bag[key1] = uuid.New().String()
@@ -102,7 +102,7 @@ func EvaluatePersistenceAfterRestart(
 		return rubricItem(fmt.Sprintf("Kill failed: %v", err), 0)
 	}
 	// Restart the same instance
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf("Restart failed: %v", err), 0)
 	}
 	// Wait briefly for the program to load data
@@ -121,7 +121,7 @@ func EvaluatePersistenceAfterRestart(
 // EvaluateNonexistentGet checks GET on a nonexistent key
 func EvaluateNonexistentGet(ctx context.Context, program baserubrics.ProgramRunner, _ baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("NonexistentGet", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 	out, err := do(ctx, program, "GET doesnotexist")
@@ -144,7 +144,7 @@ const key1 = "key1"
 // EvaluateSetGet evaluates basic SET and GET functionality
 func EvaluateSetGet(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("SetGet", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -182,7 +182,7 @@ func EvaluateSetGet(ctx context.Context, program baserubrics.ProgramRunner, bag 
 // EvaluateOverwriteKey evaluates the SET and GET functionality for overwriting a key.
 func EvaluateOverwriteKey(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("OverwriteKey", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -235,7 +235,7 @@ func do(ctx context.Context, program baserubrics.ProgramRunner, cmd string) ([]s
 // EvaluateDeleteExists checks DEL and EXISTS commands
 func EvaluateDeleteExists(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("DeleteExists", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -321,7 +321,7 @@ func checkGetAfterDel(ctx context.Context, program baserubrics.ProgramRunner, ke
 // EvaluateMSetMGet checks MSET and MGET commands
 func EvaluateMSetMGet(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("MSetMGet", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -376,7 +376,7 @@ func EvaluateMSetMGet(ctx context.Context, program baserubrics.ProgramRunner, ba
 // EvaluateTTLBasic checks EXPIRE and TTL with lazy expiration
 func EvaluateTTLBasic(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("TTLBasic", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -465,7 +465,7 @@ func checkTTLAfterExpiry(ctx context.Context, program baserubrics.ProgramRunner,
 // EvaluateRange checks RANGE command with lexicographic ordering
 func EvaluateRange(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("Range", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -536,7 +536,7 @@ func validateRangeOutput(output, expected []string) bool {
 // EvaluateTransactions checks BEGIN/COMMIT/ABORT with persistence
 func EvaluateTransactions(ctx context.Context, program baserubrics.ProgramRunner, bag baserubrics.RunBag) baserubrics.RubricItem {
 	rubricItem := newRubricItem("Transactions", 5)
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return rubricItem(fmt.Sprintf(executionFailedFmt, err), 0)
 	}
 
@@ -611,7 +611,7 @@ func testCommitTxn(ctx context.Context, program baserubrics.ProgramRunner, key, 
 	if err := program.Kill(); err != nil {
 		return fmt.Sprintf("Kill failed: %v", err), false
 	}
-	if err := program.Run(); err != nil {
+	if err := program.Run(ctx); err != nil {
 		return fmt.Sprintf("Restart failed: %v", err), false
 	}
 	time.Sleep(restartLoadDelay)
