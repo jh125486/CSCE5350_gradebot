@@ -13,6 +13,7 @@ import (
 	gbclient "github.com/jh125486/gradebot/pkg/client"
 	"github.com/jh125486/gradebot/pkg/contextlog"
 	pb "github.com/jh125486/gradebot/pkg/proto"
+	"github.com/jh125486/gradebot/pkg/proto/protoconnect"
 	baserubrics "github.com/jh125486/gradebot/pkg/rubrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,35 @@ func programBuilderWith(cb baserubrics.CommandBuilder) func(workDir, runCmd stri
 	return func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
 		return baserubrics.New(workDir, runCmd, baserubrics.WithCommandBuilder(cb)), nil
 	}
+}
+
+// newTestConfig builds a Config wired to the mock command factory, with
+// io.Discard output and no upload prompt by default; opts override fields
+// individual tests care about.
+func newTestConfig(dir string, opts ...func(*gbclient.Config)) *gbclient.Config {
+	cfg := &gbclient.Config{
+		WorkDir:        gbclient.WorkDir(dir),
+		RunCmd:         echoTestCmd,
+		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
+		Writer:         io.Discard,
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return cfg
+}
+
+func withReader(r io.Reader) func(*gbclient.Config) {
+	return func(cfg *gbclient.Config) { cfg.Reader = r }
+}
+
+func withRubricClient(c protoconnect.RubricServiceClient) func(*gbclient.Config) {
+	return func(cfg *gbclient.Config) { cfg.RubricClient = c }
+}
+
+func withQualityClient(c protoconnect.QualityServiceClient) func(*gbclient.Config) {
+	return func(cfg *gbclient.Config) { cfg.QualityClient = c }
 }
 
 // mockCommander implements Commander but doesn't actually execute anything
@@ -106,198 +136,49 @@ func (m *mockQualityServiceClient) EvaluateCodeQuality(_ context.Context, _ *con
 // prior cwd on return, which is process-global state -- running these
 // concurrently races on it (observed in CI as a spurious "failed to
 // determine working directory: getwd: no such file or directory").
-func TestExecuteProject1(t *testing.T) {
-	type args struct {
-		ctx context.Context
-		cfg *gbclient.Config
+// execProject is ExecuteProject1 or ExecuteProject2, parameterizing the
+// otherwise-identical test bodies below across both projects.
+type execProject func(context.Context, *gbclient.Config) error
+
+func TestExecuteProject(t *testing.T) {
+	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
+	projects := map[string]execProject{
+		"Project1": client.ExecuteProject1,
+		"Project2": client.ExecuteProject2,
 	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "executes successfully with mock command factory",
-			args: args{
-				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
-				cfg: &gbclient.Config{
-					WorkDir:        gbclient.WorkDir(t.TempDir()),
-					RunCmd:         echoTestCmd,
-					ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-					Writer:         io.Discard,
-					Reader:         nil, // Will skip upload prompt
-				},
-			},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := client.ExecuteProject1(tt.args.ctx, tt.args.cfg)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
+
+	for name, exec := range projects {
+		t.Run(name+"/executes successfully with mock command factory", func(t *testing.T) {
+			err := exec(ctx, newTestConfig(t.TempDir())) // nil Reader skips the upload prompt
+			assert.NoError(t, err)
+		})
+
+		t.Run(name+"/evaluators run in the correct order", func(t *testing.T) {
+			require.NoError(t, exec(ctx, newTestConfig(t.TempDir())))
+		})
+
+		t.Run(name+"/upload result configured", func(t *testing.T) {
+			cfg := newTestConfig(t.TempDir(),
+				withReader(strings.NewReader("y\n")),
+				withRubricClient(&mockRubricServiceClient{}),
+			)
+			assert.NoError(t, exec(ctx, cfg))
+		})
+
+		t.Run(name+"/upload errors are logged but don't fail execution", func(t *testing.T) {
+			cfg := newTestConfig(t.TempDir(),
+				withReader(strings.NewReader("y\n")),
+				withRubricClient(&mockRubricServiceClient{uploadErr: errors.New("upload failed")}),
+			)
+			assert.NoError(t, exec(ctx, cfg))
+		})
+
+		t.Run(name+"/QualityClient code path", func(t *testing.T) {
+			cfg := newTestConfig(t.TempDir(),
+				withReader(strings.NewReader("n\n")),
+				withQualityClient(&mockQualityServiceClient{}),
+			)
+			assert.NoError(t, exec(ctx, cfg))
 		})
 	}
-}
-
-func TestExecuteProject2(t *testing.T) {
-	type args struct {
-		ctx context.Context
-		cfg *gbclient.Config
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "executes successfully with mock command factory",
-			args: args{
-				ctx: contextlog.With(context.Background(), contextlog.DiscardLogger()),
-				cfg: &gbclient.Config{
-					WorkDir:        gbclient.WorkDir(t.TempDir()),
-					RunCmd:         echoTestCmd,
-					ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-					Writer:         io.Discard,
-					Reader:         nil, // Will skip upload prompt
-				},
-			},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := client.ExecuteProject2(tt.args.ctx, tt.args.cfg)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestExecuteProject1_Integration(t *testing.T) {
-	// This test verifies the evaluators are called in the correct order
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	tempDir := t.TempDir()
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(tempDir),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         nil,
-	}
-	err := client.ExecuteProject1(ctx, cfg)
-	require.NoError(t, err)
-}
-
-func TestExecuteProject2_Integration(t *testing.T) {
-	// This test verifies the evaluators are called in the correct order
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	tempDir := t.TempDir()
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(tempDir),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         nil,
-	}
-	err := client.ExecuteProject2(ctx, cfg)
-	require.NoError(t, err)
-}
-
-func TestExecuteProject1WithUpload(t *testing.T) {
-	// Test with upload result configured
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("y\n"),
-		RubricClient:   &mockRubricServiceClient{},
-	}
-	err := client.ExecuteProject1(ctx, cfg)
-	assert.NoError(t, err)
-}
-
-func TestExecuteProject2WithUpload(t *testing.T) {
-	// Test with upload result configured
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("y\n"),
-		RubricClient:   &mockRubricServiceClient{},
-	}
-	err := client.ExecuteProject2(ctx, cfg)
-	assert.NoError(t, err)
-}
-
-func TestExecuteProject1WithUploadError(t *testing.T) {
-	// Test that upload errors are logged but don't fail execution
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("y\n"),
-		RubricClient:   &mockRubricServiceClient{uploadErr: errors.New("upload failed")},
-	}
-	// Should not return error even if upload fails
-	err := client.ExecuteProject1(ctx, cfg)
-	assert.NoError(t, err)
-}
-
-func TestExecuteProject2WithUploadError(t *testing.T) {
-	// Test that upload errors are logged but don't fail execution
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("y\n"),
-		RubricClient:   &mockRubricServiceClient{uploadErr: errors.New("upload failed")},
-	}
-	// Should not return error even if upload fails
-	err := client.ExecuteProject2(ctx, cfg)
-	assert.NoError(t, err)
-}
-
-func TestExecuteProject1WithQualityClient(t *testing.T) {
-	// Test the QualityClient code path
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("n\n"),
-		QualityClient:  &mockQualityServiceClient{},
-	}
-	err := client.ExecuteProject1(ctx, cfg)
-	assert.NoError(t, err)
-}
-
-func TestExecuteProject2WithQualityClient(t *testing.T) {
-	// Test the QualityClient code path
-	ctx := contextlog.With(context.Background(), contextlog.DiscardLogger())
-	cfg := &gbclient.Config{
-		WorkDir:        gbclient.WorkDir(t.TempDir()),
-		RunCmd:         echoTestCmd,
-		ProgramBuilder: programBuilderWith((&mockCommandFactory{}).New),
-		Writer:         io.Discard,
-		Reader:         strings.NewReader("n\n"),
-		QualityClient:  &mockQualityServiceClient{},
-	}
-	err := client.ExecuteProject2(ctx, cfg)
-	assert.NoError(t, err)
 }

@@ -24,15 +24,16 @@ type (
 	}
 )
 
-// Run executes the Project 1 grading client.
-func (cmd *Project1Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
+// buildConfig assembles a client.Config shared by both projects' Run methods
+// from the parsed CLI args and the injected Service.
+func buildConfig(args basecli.CommonArgs, svc *basecli.Service) *baseclient.Config {
 	cfg := &baseclient.Config{
-		ServerURL:     cmd.ServerURL,
-		WorkDir:       cmd.WorkDir,
-		RunCmd:        cmd.RunCmd,
-		Env:           cmd.Env,
-		QualityClient: protoconnect.NewQualityServiceClient(svc.Client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(svc.Client, cmd.ServerURL),
+		ServerURL:     args.ServerURL,
+		WorkDir:       args.WorkDir,
+		RunCmd:        args.RunCmd,
+		Env:           args.Env,
+		QualityClient: protoconnect.NewQualityServiceClient(svc.Client, args.ServerURL),
+		RubricClient:  protoconnect.NewRubricServiceClient(svc.Client, args.ServerURL),
 		Reader:        svc.Stdin,
 		Writer:        svc.Stdout,
 	}
@@ -42,26 +43,15 @@ func (cmd *Project1Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
 		}
 	}
 
-	return client.ExecuteProject1(ctx, cfg)
+	return cfg
+}
+
+// Run executes the Project 1 grading client.
+func (cmd *Project1Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
+	return client.ExecuteProject1(ctx, buildConfig(cmd.CommonArgs, svc))
 }
 
 // Run executes the Project 2 grading client.
 func (cmd *Project2Cmd) Run(ctx basecli.Context, svc *basecli.Service) error {
-	cfg := &baseclient.Config{
-		ServerURL:     cmd.ServerURL,
-		WorkDir:       cmd.WorkDir,
-		RunCmd:        cmd.RunCmd,
-		Env:           cmd.Env,
-		QualityClient: protoconnect.NewQualityServiceClient(svc.Client, cmd.ServerURL),
-		RubricClient:  protoconnect.NewRubricServiceClient(svc.Client, cmd.ServerURL),
-		Reader:        svc.Stdin,
-		Writer:        svc.Stdout,
-	}
-	if svc.CommandBuilder != nil {
-		cfg.ProgramBuilder = func(workDir, runCmd string) (baserubrics.ProgramRunner, error) {
-			return baserubrics.New(workDir, runCmd, baserubrics.WithCommandBuilder(svc.CommandBuilder)), nil
-		}
-	}
-
-	return client.ExecuteProject2(ctx, cfg)
+	return client.ExecuteProject2(ctx, buildConfig(cmd.CommonArgs, svc))
 }
