@@ -3,8 +3,8 @@ module github.com/jh125486/CSCE5350_gradebot
 go 1.25.5
 
 require (
-	connectrpc.com/connect v1.20.0
-	github.com/go-git/go-billy/v5 v5.9.1
+	connectrpc.com/connect v1.21.0
+	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/google/uuid v1.6.0
 	github.com/jh125486/gradebot v1.6.0
 	github.com/stretchr/testify v1.12.1
